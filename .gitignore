@@ -1,0 +1,43 @@
+# ��� Python & Jupyter 기본
+__pycache__/
+*.py[cod]
+*.so
+.ipynb_checkpoints/
+
+# ��� IDE 설정
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# ��� 학습 산출물 및 로그
+/output/
+*.log
+*.csv
+*.xlsx
+
+# ��� 자동 생성된 가중치 및 체크포인트
+*.pt
+*.pth
+*.onnx
+**/weights/
+**/checkpoints/
+
+# ���️ 대용량 이미지 및 비디오
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.mp4
+*.avi
+
+# ��� 압축 파일
+*.zip
+*.tar
+*.tar.gz
+
+# ���️ 데이터셋 경로
+/Datasets/
+
+# ��� 예비 모델 결과 백업
+/output_models/
