@@ -28,10 +28,10 @@ def get_path():
     return print(__name__)
 
 
-def build_yoloh_model(cfg=None, device='cuda', nc=None, ex_dict=None):
+def build_yoloh_model(cfg=None, ex_dict=None):
     if isinstance(cfg, str):
         cfg = yoloh_config[cfg]
-    model = YOLOH(cfg=cfg, device=device, num_classes=nc).to(device)
+    model = YOLOH(cfg=cfg, device=ex_dict['Device'], num_classes=ex_dict['Number of Classes']).to(ex_dict['Device'])
     return model
 
 def train_yoloh_model(ex_dict):

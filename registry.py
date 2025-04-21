@@ -5,7 +5,7 @@ from Models.YOLOH.config.yoloh_config import yoloh_config
 
 model_registry = {
     'YoloOW': {
-        'build': build_yoloow_model,
+        'build': partial(build_yoloow_model, cfg='yoloOW.yaml'), 
         'train': train_yoloow_model,
         'eval': eval_yoloow_model
     },
@@ -26,10 +26,10 @@ model_registry = {
     }
 }
 
-def get_model(model_name, **kwargs):
+def get_model(model_name, ex_dict):
     if model_name not in model_registry:
         raise ValueError(f"Unsupported model: {model_name}")
-    return model_registry[model_name]['build'](**kwargs)
+    return model_registry[model_name]['build'](ex_dict=ex_dict)
 
 def get_pipeline(model_name):
     return model_registry[model_name]['train'], model_registry[model_name]['eval']

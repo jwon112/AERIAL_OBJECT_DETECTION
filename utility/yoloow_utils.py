@@ -9,18 +9,15 @@ from utility.path_manager import use_model_root, _MODEL_ROOTS
 with use_model_root("YoloOW"):
     from models.yolo import Model as YoloOWModel
     from utils.loss import ComputeLoss
-
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from coco_eval import CocoEvaluator
 from utility.optimizer import build_optimizer
 
-def build_yoloow_model(cfg='yoloOW.yaml', device='cuda', nc=80):
+def build_yoloow_model(cfg, ex_dict=None):
     cfg_path = Path(cfg)
-
     # 1차: 호출자가 절대경로를 줬을 때
     if cfg_path.is_file():
         pass
-
     # 2차: 프로젝트 기본 위치
     else:
         cfg_path = _MODEL_ROOTS["YoloOW"] / "cfg" / "training" / cfg
@@ -28,7 +25,11 @@ def build_yoloow_model(cfg='yoloOW.yaml', device='cuda', nc=80):
             raise FileNotFoundError(f"[YoloOW] config file not found: {cfg_path}")
 
     print(f"[YoloOW] Using config → {cfg_path}")         # 디버그 로그
-    return YoloOWModel(cfg=str(cfg_path), ch=3, nc=nc).to(device)
+    # 하이퍼 파라미터 세팅
+    model = YoloOWModel(cfg=str(cfg_path), ch=3, nc=ex_dict['Number of Classes']).to(ex_dict['Device'])
+    if ex_dict and "Hyp" in ex_dict:
+        model.hyp = ex_dict["Hyp"]
+    return model
 
 def train_yoloow_model(ex_dict):
     ex_dict['Train Time'] = datetime.now().strftime("%y%m%d_%H%M%S")
