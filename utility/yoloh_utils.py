@@ -1,6 +1,7 @@
 from datetime import datetime
 import os, sys
 import torch
+from utility.trainer import run_train_loop
 #from Models.YOLOH.models.yoloh.yoloh import YOLOH
 #from Models.YOLOH.config.yoloh_config import *
 #from Models.YOLOH.utils.criterion import Criterion
@@ -60,20 +61,24 @@ def train_yoloh_model(ex_dict):
         weight_decay=ex_dict['Weight Decay']
     )
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
-    dataloader = get_dataloader("train", ex_dict)
+    train_loader = get_dataloader("train", ex_dict)
     criterion = Criterion()
     model.train()
     
-    for epoch in range(epochs):
-        for imgs, targets in dataloader:
-            imgs, targets = imgs.to(device), targets.to(device)
-            optimizer.zero_grad()
-            preds = model(imgs)
-            loss = criterion(preds, targets)
-            loss.backward()
-            optimizer.step()
-        scheduler.step()
-        print(f"[YOLOH] Epoch {epoch+1}/{epochs}, Loss: {loss.item():.4f}")
+
+    ex_dict = run_train_loop(
+        model=model,
+        train_loader=train_loader,
+        criterion=criterion,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        epochs=ex_dict["Epochs"],
+        device=device,
+        model_name="YOLOH",
+        print_interval=10,
+        eval_fn=eval_yoloh_model,
+        ex_dict=ex_dict
+    )
 
     pt_path = os.path.join(project, name, "weights", "best.pt")
     os.makedirs(os.path.dirname(pt_path), exist_ok=True)
@@ -103,3 +108,12 @@ def eval_yoloh_model(ex_dict):
     ex_dict['Test Results'] = evaluator.summarize()
     return ex_dict
 
+class YOLOHLossWrapper:
+    def __init__(self, criterion):
+        self.criterion = criterion
+
+    def __call__(self, preds, targets):
+        loss = self.criterion(preds, targets)
+        # YOLOH의 경우 구성 요소가 없으므로 dummy 값을 반환
+        loss_items = [loss.item(), 0.0, 0.0]  # box, obj, cls 대신 단일 loss만
+        return loss, loss_items

@@ -2,6 +2,7 @@ from datetime import datetime
 import os,sys
 import torch
 from pathlib import Path
+from utility.trainer import run_train_loop
 from utility.dataloader_utils import get_dataloader 
 #from Models.YoloOW.models.yolo import Model as YoloOWModel
 #from Models.YoloOW.utils.loss import ComputeLoss
@@ -32,7 +33,7 @@ def build_yoloow_model(cfg, ex_dict=None):
 
     # gradient ratio
     model.gr = 1.0 #defualt
-    
+
     return model
 
 def train_yoloow_model(ex_dict):
@@ -64,17 +65,21 @@ def train_yoloow_model(ex_dict):
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs) 
 
     model.train()
-    for epoch in range(epochs):
-        for imgs, targets in train_loader:
-            imgs = imgs.to(device)
-            targets = targets.to(device)
-            optimizer.zero_grad()
-            preds = model(imgs)
-            loss, _ = criterion(preds, targets)
-            loss.backward()
-            optimizer.step()
-        scheduler.step()
-        print(f"[YoloOW] Epoch {epoch+1}/{epochs}, Loss: {loss.item():.4f}")
+    
+    #학습 시작
+    ex_dict = run_train_loop(
+        model=model,
+        train_loader=train_loader,
+        criterion=criterion,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        epochs=ex_dict["Epochs"],
+        device=device,
+        model_name="YoloOW",
+        print_interval=10,
+        eval_fn=eval_yoloow_model,
+        ex_dict=ex_dict
+    )
         
 
     pt_path = os.path.join(project, "Train", "weights", "best.pt")

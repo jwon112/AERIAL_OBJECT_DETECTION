@@ -7,7 +7,7 @@ def build_optimizer(model,
                     name='sgd',
                     momentum=0.,
                     weight_decay=0.):
-    nmae = name.lower()
+    name = name.lower()
     print('==============================')
     print('Optimizer: {}'.format(name))
     print('--momentum: {}'.format(momentum))
