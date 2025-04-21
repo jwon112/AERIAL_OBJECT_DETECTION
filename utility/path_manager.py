@@ -1,4 +1,8 @@
 # utility/path_manager.py
+
+# Models 에 모델 소스 코드를 넣을 경우 기존 모델 소스 코드의 경우 각자 별도의 entry point를 간주하기 때문에
+# 서로 다른 entry point로 인한 경로 충돌 문제가 있음으로 해당 코드를 사용하여 경로를 관리합니다.
+
 from contextlib import contextmanager
 import sys, pathlib
 

@@ -82,7 +82,7 @@ def update_dataset_paths(dataset_root, dataset_name, iteration):
     return True
 
 
-def train_model(ex_dict):
+""" def train_model(ex_dict):
     ex_dict['Train Time'] = datetime.now().strftime("%y%m%d_%H%M%S")
     name = "Train"
     poject = f"{ex_dict['Output Dir']}/{ex_dict['Experiment Time']}/{ex_dict['Train Time']}_{ex_dict['Model Name']}_{ex_dict['Dataset Name']}_Iter_{ex_dict['Iteration']}"
@@ -115,7 +115,7 @@ def evaluate_model(ex_dict):
     ex_dict['Test Results'] = ex_dict['Model'].val(data=ex_dict['Data Config'], 
                                                    name = name,
                                                    split='test', save=True)
-    return ex_dict
+    return ex_dict """
     
 def format_measures(results, main_decimals=4, class_decimals=3, speed_decimals=1):
     eval_dict = {

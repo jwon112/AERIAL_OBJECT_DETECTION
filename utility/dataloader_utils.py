@@ -17,6 +17,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms as T
 from PIL import Image
+import yaml
 
 __all__ = [
     "YOLOTxtDataset",
@@ -107,7 +108,13 @@ def collate_fn_yolo(batch):
 def get_dataloader(mode: str, ex_dict: dict, shuffle: bool | None = None):
     """mode ∈ {'train','val','test'} -> torch.utils.data.DataLoader"""
     assert mode in ("train", "val", "test"), "mode must be train|val|test"
-    txt_path = ex_dict["Data Config"][mode]
+    yaml_path = ex_dict["Data Config"]
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        data_cfg = yaml.safe_load(f)
+
+    dataset_dir = os.path.dirname(yaml_path)
+    txt_path = os.path.join(dataset_dir, data_cfg[mode])
+
     batch_size = ex_dict["Batch Size"]
     img_size = ex_dict["Image Size"]
     workers = ex_dict.get("Num Workers", 4)
