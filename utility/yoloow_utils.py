@@ -11,7 +11,7 @@ with use_model_root("YoloOW"):
     from models.yolo import Model as YoloOWModel
     from utils.loss import ComputeLoss
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from coco_eval import CocoEvaluator
+from utility.metrics import *
 from utility.optimizer import build_optimizer
 import yaml
 
@@ -87,15 +87,70 @@ def train_yoloow_model(ex_dict):
     torch.save(model.state_dict(), pt_path)
     ex_dict['PT path'] = pt_path
 
-    return ex_dict 
+
 
 def eval_yoloow_model(ex_dict):
+
+    from utility.metrics import evaluate_yolo_predictions
+
     model = ex_dict['Model']
     device = ex_dict['Device']
     pt_path = ex_dict.get('PT path')
 
     if pt_path and os.path.exists(pt_path):
         model.load_state_dict(torch.load(pt_path, map_location=device))
+
+##############################
+    # [1] 예측 결과 및 GT 준비
+    preds = []
+    gts = []
+    # [2] 저장 경로 정의
+    save_dir = os.path.join(
+        ex_dict["Output Dir"],
+        ex_dict["Experiment Time"],
+        f"{ex_dict['Train Time']}_{ex_dict['Model Name']}_{ex_dict['Dataset Name']}_Iter_{ex_dict['Iteration']}",
+        "Test"
+    )
+
+    from utility.metrics import evaluate_yolo_predictions, BoxResults
+    # [3] 평가 실행
+    precision, recall, ap, ap_class = evaluate_yolo_predictions(
+        preds=preds,
+        gts=gts,
+        iou_thres=0.5,
+        save_dir=save_dir  # 이 경로에 PR/ROC curves 저장됨
+    )
+
+     # [4] BoxResults 객체 생성
+    per_class_data = [
+        (precision[i], recall[i], ap[i], ap[i]) for i in range(len(ap_class))
+    ]
+
+    box_results = BoxResults(
+        mp=precision.mean(),
+        mr=recall.mean(),
+        map50=ap.mean(),
+        map=ap.mean(),
+        map75=ap.mean(),  # 동일한 값으로 설정
+        ap_class_index=ap_class,
+        names=ex_dict["Class Names"],
+        per_class_data=per_class_data
+    )
+
+    # [5] 결과를 ex_dict에 저장 (main에서 format_measures로 후처리 가능)
+    ex_dict["Test Results"] = {
+        "box": box_results,
+        "speed": {
+            "inference": 0.0,
+            "nms": 0.0,
+            "total": 0.0
+        }
+    }
+
+
+    return ex_dict 
+
+################################
 
     val_loader = get_dataloader("val", ex_dict, shuffle=False)
     evaluator = CocoEvaluator()
