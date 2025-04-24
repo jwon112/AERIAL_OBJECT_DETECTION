@@ -35,6 +35,8 @@ class YOLOTxtDataset(Dataset):
     def __init__(self, txt_path: str, img_size: int, augment: bool = False):
         self.img_size = img_size
         self.augment = augment
+        self._cached_labels = None
+
         with open(txt_path, "r", encoding="utf-8") as f:
             self.img_files = [ln.strip() for ln in f if ln.strip()]
 
@@ -80,6 +82,19 @@ class YOLOTxtDataset(Dataset):
                         targets.append([cls, cx, cy, bw, bh])
         targets = torch.tensor(targets, dtype=torch.float32)  # n×5
         return img, targets
+    
+    # --------------------------------------------------
+    @property
+    def labels(self):
+        if self._cached_labels is None:
+            print("[YOLOTxtDataset] Caching labels for anchor check...")
+            label_list = []
+            for i in range(len(self)):
+                _, labels = self[i]
+                label_list.append(labels.cpu().numpy() if torch.is_tensor(labels) else labels)
+            self._cached_labels = label_list
+        return self._cached_labels
+
 
 # --------------------------------------------------
 # Collate FN
