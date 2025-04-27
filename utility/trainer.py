@@ -6,32 +6,47 @@ from tqdm import tqdm
 import numpy as np
 from utility.metrics import xywh2xyxy, box_iou 
 
+import numpy as np
+import torch
+from utility.metrics import box_iou
+
 def check_anchors(dataset, model, imgsz=640, threshold=4.0):
-    """
-    Warns if the dataset objects are not well-matched to the model's anchors.
-
-    Arguments:
-        dataset: torch Dataset object with .labels attribute (list of arrays)
-        model: model with .anchors attribute (expected shape: [n_layers, n_anchors, 2])
-        imgsz: input image size
-        threshold: minimum best anchor ratio to suppress warning
-
-    Assumes the model has a `.anchors` attribute representing anchor box dimensions.
-    """
     print("\n[trainer] 🔍 Checking anchor fit to dataset...")
-    if not hasattr(model, "anchors"):
+    if not hasattr(model, "anchors") or model.anchors is None:
         print("[trainer] ⚠️ model has no `.anchors` attribute. Skipping anchor check.")
         return
 
     labels = np.concatenate(dataset.labels, 0)
-    if len(labels) == 0:
+    if labels.size == 0:
         print("[trainer] ⚠️ No labels found in dataset. Skipping anchor check.")
         return
 
-    wh = labels[:, 3:5] * imgsz  # image size scale
-    anchor_vec = model.anchors.clone().view(-1, 2)
-    j = box_iou(torch.tensor(wh), anchor_vec)[0].max(1)[0]
-    best_ratio = j.mean().item()
+    # normalized w,h → 픽셀 단위 numpy array
+    wh_np = labels[:, 3:5] * imgsz  # shape (N,2)
+
+    # GPU에 올라간 앵커 벡터
+    anchor_vec = model.anchors.clone().view(-1, 2)  # tensor, e.g. device=cuda:0
+    device = anchor_vec.device
+
+    try:
+        # 4-coords 박스 (0,0,w,h)
+        b1 = torch.from_numpy(
+            np.hstack([np.zeros_like(wh_np), wh_np])
+        ).float().to(device)       # (N,4), .to(device) 로 GPU로 이동
+
+        b2 = torch.cat([
+            torch.zeros_like(anchor_vec),  # x1=0, y1=0
+            anchor_vec                      # x2=aw, y2=ah
+        ], dim=1)                          # (M,4) already on `device`
+
+        # IoU 계산
+        ious = box_iou(b1, b2)            # (N,M)
+        best_per_wh = ious.max(1)[0]      # 각 gt-box별 best IoU
+        best_ratio = best_per_wh.mean().item()
+
+    except Exception as e:
+        print(f"[trainer] ⚠️ Anchor check skipped: {e}")
+        return
 
     if best_ratio < threshold:
         print(f"[trainer] ⚠️ Low anchor fit ({best_ratio:.2f} < {threshold}). Consider running autoanchor.")
@@ -54,7 +69,7 @@ def run_train_loop(
 ):
     model.train()
     global_step = 0
-    warmup_iters = min(1000, len(train_loader) * 3)  # warmup iterations
+    warmup_iters = min(1000, len(train_loader) * 5)  # warmup iterations
 
     # Store initial learning rate for logging
     for pg in optimizer.param_groups:
@@ -106,6 +121,7 @@ def run_train_loop(
                     "box": f"{loss_items[0]:.3f}",
                     "obj": f"{loss_items[1]:.3f}",
                     "cls": f"{loss_items[2]:.3f}",
+                    "total loss": f"{loss_items[3]:.3f}",
                     "lr": f"{current_lr:.6f}"
                 })
 

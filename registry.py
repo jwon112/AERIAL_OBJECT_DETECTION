@@ -1,4 +1,4 @@
-from utility.yoloow_utils import build_yoloow_model, train_yoloow_model, eval_yoloow_model
+from utility.yoloow_utils import build_yoloow_model, train_yoloow_model, eval_yoloow_model, test_yoloow_model
 from utility.yoloh_utils import build_yoloh_model, train_yoloh_model, eval_yoloh_model
 from functools import partial
 from Models.YOLOH.config.yoloh_config import yoloh_config
@@ -7,7 +7,8 @@ model_registry = {
     'YoloOW': {
         'build': partial(build_yoloow_model, cfg='yoloOW.yaml'), 
         'train': train_yoloow_model,
-        'eval': eval_yoloow_model
+        'eval': eval_yoloow_model,
+        'test': test_yoloow_model
     },
     'yoloh18': {
         'build': partial(build_yoloh_model, cfg=yoloh_config['yoloh18']),
@@ -32,4 +33,4 @@ def get_model(model_name, ex_dict):
     return model_registry[model_name]['build'](ex_dict=ex_dict)
 
 def get_pipeline(model_name):
-    return model_registry[model_name]['train'], model_registry[model_name]['eval']
+    return model_registry[model_name]['train'], model_registry[model_name]['eval'], model_registry[model_name]['test']

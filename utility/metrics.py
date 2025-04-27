@@ -131,6 +131,46 @@ def ap_per_class(tp, conf, pred_cls, target_cls, eps=1e-16):
     return np.array(precision), np.array(recall), np.array(ap), unique_classes.astype(int)
 
 
+# ──────────────────────────────────────────────────────────────
+# COCO-style mAP 계산기 (per-class + 전체)
+# ──────────────────────────────────────────────────────────────
+from utility.metrics import ap_per_class   # 기존 함수 재사용
+
+def compute_coco_map(tp, conf, pred_cls, target_cls, iouv=None):
+    """
+    ⬇️  IoU set(iouv)별 Precision/Recall/AP 계산
+    반환: (p50, r50, map50_vec, map5_95_vec, map75_vec, ap_class_index)
+    - p50, r50      : Precision·Recall 벡터(클래스별) @ IoU 0.5
+    - map50_vec     : 클래스별 AP  @ IoU 0.5
+    - map5_95_vec   : 클래스별 AP  @ IoU 0.5:0.95 (COCO)
+    - map75_vec     : 클래스별 AP  @ IoU 0.75
+    - ap_class_index: 클래스 id 배열
+    """
+    if iouv is None:
+        iouv = np.array([0.5 + i * 0.05 for i in range(10)])
+
+    # --- IoU 0.5 고정 결과 -----------
+    p50, r50, ap50_vec, ap_class = ap_per_class(tp, conf, pred_cls, target_cls, iouv[0])
+
+    # --- 0.5:0.95 (COCO) ------------
+    ap_mat = []           # [cls, iou_idx]
+    for iou in iouv:
+        _, _, ap_i, _ = ap_per_class(tp, conf, pred_cls, target_cls, iou)
+        ap_mat.append(ap_i)
+    ap_mat = np.stack(ap_mat, axis=1)     # shape (n_cls, 10)
+
+    map5_95_vec = ap_mat.mean(1)
+    map75_vec   = ap_mat[:, iouv.tolist().index(0.75)]
+
+    return p50, r50, ap50_vec, map5_95_vec, map75_vec, ap_class
+
+
+class EvalResults:      
+    def __init__(self, box, speed=None):
+        self.box = box
+        self.speed = speed or {}
+
+
 def compute_ap(recall, precision):
     # 101-point interpolated average precision
     mrec = np.concatenate(([0.], recall, [1.]))
@@ -319,47 +359,30 @@ class ConfusionMatrix:
         plt.close()
 
 
-def non_max_suppression_v5(prediction, conf_thres=0.25, iou_thres=0.45):
-    if isinstance(prediction, tuple):
+def non_max_suppression_v7(prediction, conf_thres=0.25, iou_thres=0.45):
+    if isinstance(prediction, tuple): 
         print(f"[DEBUG] tuple contents: {[type(p) for p in prediction]}")
-        prediction = prediction[0]  # 강제 분해
-
-    #print(f"[DEBUG] prediction type: {type(prediction)}, shape: {prediction.shape if isinstance(prediction, torch.Tensor) else 'list'}")
+        prediction = prediction[0]  # 튜플 강제 분해
 
     if isinstance(prediction, torch.Tensor) and prediction.ndim == 3:
-        prediction = [p for p in prediction]
+        prediction = [p for p in prediction] #[B, N, 5+c] -> B x [N, 5+C]
 
     output = []
-    for pred in prediction:
-        #print(f"[DEBUG] pred shape inside loop: {pred.shape}")
+    for pred in prediction:  #[N, 5+c] -> N x [5+C]
+        obj_conf = pred[:, 4:5]  
+        cls_conf, cls_id = pred[:, 5:].max(1, keepdim=True) 
+        conf = obj_conf * cls_conf
+        
+        pred = torch.cat((pred[:, :4], conf, cls_id.float()), dim=1)  # → [x1 y1 x2 y2 conf cls]
+        pred = pred[conf.view(-1) >= conf_thres]                      # conf 필터링
 
-        pred = pred[pred[:, 4] >= conf_thres]
         if not pred.shape[0]:
             output.append(torch.zeros((0, 6), device=pred.device))
             continue
 
-        boxes = pred[:, :4]
-        scores = pred[:, 4]
-        keep = torchvision.ops.nms(boxes, scores, iou_thres)
+        keep = torchvision.ops.nms(pred[:, :4], pred[:, 4], iou_thres)
         output.append(pred[keep])
     return output
-
-def non_max_suppression_v7(prediction, conf_thres=0.25, iou_thres=0.45):
-    output = []
-    for pred in prediction:
-        pred = pred[pred[:, 4] >= conf_thres]
-        if not pred.shape[0]:
-            output.append(torch.zeros((0, 6), device=pred.device))
-            continue
-
-        boxes = pred[:, :4]
-        scores = pred[:, 4]
-        classes = pred[:, 5]
-
-        keep = torchvision.ops.nms(boxes, scores, iou_thres)
-        output.append(pred[keep])
-    return output
-
 
 def non_max_suppression_v7_multilabel(prediction, conf_thres=0.25, iou_thres=0.45):
     output = []
@@ -384,10 +407,8 @@ def non_max_suppression_v7_multilabel(prediction, conf_thres=0.25, iou_thres=0.4
     return output
 
 
-def get_nms(version="v5"):
-    if version == "v5":
-        return non_max_suppression_v5
-    elif version == "v7":
+def get_nms(version="v7"):
+    if version == "v7":
         return non_max_suppression_v7
     elif version == "v7-multilabel":
         return non_max_suppression_v7_multilabel
