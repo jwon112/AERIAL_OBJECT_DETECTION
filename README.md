@@ -5,11 +5,14 @@ AERIAL_OBJECT_DETECTION/ \
 ├── Models/ # 모델 소스코드 (YOLOH, YoloOW 등) \
 ├── output/ # 실험 결과 저장\
 ├── utility/ # 공통 함수 및 모델 래퍼\
+| ├── autoanchor.py \
 │ ├── dataloader_utils.py \    
+│ ├── metrics.py # 성능 계산 관련 함수\
 │ ├── optimizer.py \
+│ ├── path_manager.py # import 경로 설정\
+│ ├── trainer.py # 훈련 루프 및 출력 설정\
 │ ├── yoloh_utils.py\
 │ ├── yoloow_utils.py\
-│ ├── metrics.py\
 │ └── utils.py \
 ├── main.ipynb # 실험 실행 (학습/검증/테스트)\
 ├── Data_Split.ipynb # 데이터셋 분할 및 yaml 생성\
