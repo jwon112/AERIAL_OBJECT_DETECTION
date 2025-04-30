@@ -18,6 +18,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms as T
 from PIL import Image
 import yaml
+import numpy as np
 
 __all__ = [
     "YOLOTxtDataset",
@@ -32,13 +33,22 @@ __all__ = [
 class YOLOTxtDataset(Dataset):
     """Dataset for image paths listed in a .txt file (YOLO style)."""
 
-    def __init__(self, txt_path: str, img_size: int, augment: bool = False):
+    def __init__(self, txt_path: str, img_size: int, augment: bool = False, mode: str= None):
+        assert mode in ("train", "val", "test"), "mode must be train|val|test"
+        self.mode = mode
         self.img_size = img_size
         self.augment = augment
         self._cached_labels = None
 
         with open(txt_path, "r", encoding="utf-8") as f:
             self.img_files = [ln.strip() for ln in f if ln.strip()]
+
+        self.shapes = []
+        for img_path in self.img_files:
+            from PIL import Image
+            img = Image.open(img_path)
+            self.shapes.append((img.height, img.width))
+        self.shapes = np.array(self.shapes)
 
         # basic transforms (you can plug Albumentations etc. if needed)
         self.tfms = T.Compose([
@@ -70,6 +80,7 @@ class YOLOTxtDataset(Dataset):
 
         # (옵션) Data augmentation 자리 – 필요 시 self.augment 체크 후 적용
         img = self.tfms(img)  # → 3×S×S tensor (0‑1)
+        #print(f"[DEBUG] __getitem__ called, self.mode = {self.mode}")
 
         # read label
         label_path = self._label_path(img_path)
@@ -79,8 +90,15 @@ class YOLOTxtDataset(Dataset):
                 for ln in f:
                     if ln.strip():
                         cls, cx, cy, bw, bh = map(float, ln.strip().split())
+                        if self.mode == "test":
+                            cx *= w0; cy *= h0
+                            bw *= w0; bh *= h0
+                            print(f"[DEBUG] After : cls={cls}, cx={cx:.1f}, cy={cy:.1f}, bw={bw:.1f}, bh={bh:.1f}")
+
                         targets.append([cls, cx, cy, bw, bh])
+
         targets = torch.tensor(targets, dtype=torch.float32)  # n×5
+
         return img, targets
     
     # --------------------------------------------------
@@ -135,9 +153,13 @@ def get_dataloader(mode: str, ex_dict: dict, shuffle: bool | None = None):
     workers = ex_dict.get("Num Workers", 4)
     augment = bool(ex_dict.get("Augment", False) and mode == "train")
 
-    ds = YOLOTxtDataset(txt_path, img_size, augment=augment)
+    ds = YOLOTxtDataset(txt_path, img_size, augment=augment, mode=mode)
     if shuffle is None:
         shuffle = (mode == "train")
+
+    # ❗ workers=0 강제 적용 (test일 때만)
+    if mode == "test":
+        workers = 0
 
     dl = DataLoader(
         ds,

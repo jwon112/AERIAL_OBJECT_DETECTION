@@ -5,7 +5,7 @@ import torch
 from tqdm import tqdm
 import numpy as np
 from utility.metrics import xywh2xyxy, box_iou 
-
+from utility.autoanchor import check_anchors as autoanchor_check_anchors
 import numpy as np
 import torch
 from utility.metrics import box_iou
