@@ -1,4 +1,4 @@
-from .dilated_encoder import DilatedEncoder
+from .dilated_encoder2 import DilatedEncoder
 
 
 def build_neck(cfg, in_dim, out_dim):

@@ -469,6 +469,10 @@ class ComputeLoss:
                 #iou = bbox_iou1(pbox.T, tbox[i], x1y1x2y2=False, SIoU=True)  # iou(prediction, target)
                 iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)
 
+                print(f"[DEBUG] Head {i} | iou.min={iou.min():.4f}, iou.max={iou.max():.4f}, iou.mean={iou.mean():.4f}")
+                print(f"[DEBUG] Head {i} | ps[..., 4].sigmoid().mean = {ps[:, 4].sigmoid().mean():.4f}")
+                
+
                 if type(iou) is tuple:
                     if len(iou) == 2:
                         lbox += (iou[1].detach() * (1 - iou[0])).mean()
@@ -597,7 +601,6 @@ class ComputeLossOTA:
         bs, as_, gjs, gis, targets, anchors = self.build_targets(p, targets, imgs)
         pre_gen_gains = [torch.tensor(pp.shape, device=device)[[3, 2, 3, 2]] for pp in p] 
     
-
         # Losses
         for i, pi in enumerate(p):  # layer index, layer predictions
             b, a, gj, gi = bs[i], as_[i], gjs[i], gis[i]  # image, anchor, gridy, gridx

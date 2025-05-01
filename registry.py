@@ -1,5 +1,5 @@
-from utility.yoloow_utils import build_yoloow_model, train_yoloow_model, eval_yoloow_model, test_yoloow_model
-from utility.yoloh_utils import build_yoloh_model, train_yoloh_model, eval_yoloh_model, test_yoloh_model
+from Models.YoloOW.yoloow_utils import build_yoloow_model, train_yoloow_model, eval_yoloow_model, test_yoloow_model
+from Models.YOLOH.yoloh_utils import build_yoloh_model, train_yoloh_model, eval_yoloh_model, test_yoloh_model
 from functools import partial
 from Models.YOLOH.config.yoloh_config import yoloh_config
 

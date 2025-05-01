@@ -1,5 +1,3 @@
-# Auto-anchor utils
-
 import numpy as np
 import torch
 import yaml

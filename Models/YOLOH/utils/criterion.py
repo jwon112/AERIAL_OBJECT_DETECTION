@@ -97,8 +97,8 @@ class Criterion(nn.Module):
         """
         pred_box = outputs['pred_box']
         pred_cls = outputs['pred_cls'].reshape(-1, self.num_classes)
-        pred_box_copy = pred_box.detach().clone().cpu()
-        anchor_boxes_copy = anchor_boxes.clone().cpu()
+        pred_box_copy = pred_box.detach().clone()#.cpu()
+        anchor_boxes_copy = anchor_boxes.clone()#.cpu()
         # rescale tgt boxes
         B = len(targets)
         indices = self.matcher(pred_box_copy, anchor_boxes_copy, targets)

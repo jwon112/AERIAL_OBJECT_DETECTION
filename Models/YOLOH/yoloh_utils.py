@@ -30,62 +30,60 @@ def get_path():
 def build_yoloh_model(cfg=None, ex_dict=None):
     if isinstance(cfg, str):
         cfg = yoloh_config[cfg]
-
-    model_cfg = {
-        'backbone': {
-            'type': cfg['backbone'],
-            'norm_type': 'bn',    # ✅ 여기 추가!
-        },
-        'neck': {
-            'type': cfg['neck'],
-            'in_channels': [64, 128, 256, 512],
-            'out_channels': cfg['head_dim'],
-            'dilation_list': cfg['dilation_list'],
-            'expand_ratio': cfg['expand_ratio'],
-            'norm_type': 'bn',    # neck에도 있었지
-        },
-        'head': {
-            'type': cfg['head'],
-            'in_channels': cfg['head_dim'],
-            'head_dim': cfg['head_dim'],
-            'num_classes': ex_dict['Number of Classes'],
-        },
-        'anchor_size': cfg.get('anchor_size', []),
-        'stride': 32,
-    }
-
-
-    model = YOLOH(cfg=model_cfg, device=ex_dict['Device'], num_classes=ex_dict['Number of Classes'])
+    device = ex_dict['Device']
+    model = YOLOH(cfg=cfg, device=device, num_classes=ex_dict['Number of Classes'])
+    model.to(device)
     return model
+
+def _yolo_txt_to_targets(batch_targets):
+    """
+    YOLOTxtDataset 이 내놓는 (N,6) 텐서를
+    Criterion 이 기대하는 list[dict] 로 변환.
+    batch_targets : Tensor  [bi cls cx cy w h]  (0 또는 N행)
+    """
+    tgt_list = []
+    if batch_targets.numel() == 0:           # 배치에 라벨이 없을 때
+        tgt_list.append({'boxes': torch.zeros((0,4), device=batch_targets.device),
+                         'labels': torch.zeros((0,),  device=batch_targets.device, dtype=torch.long)})
+        return tgt_list
+
+    for bi in batch_targets[:,0].unique():
+        t = batch_targets[batch_targets[:,0] == bi][:,1:]   # cls | cx cy w h
+        boxes  = t[:,1:]                                    # (k,4)
+        labels = t[:,0].long()                              # (k,)
+        tgt_list.append({'boxes': boxes,
+                         'labels': labels,})
+    return tgt_list
+
+
 
 class YoloHLossWrapper:
     """
-    YOLOH Criterion 이 반환하는 total loss를
-    run_train_loop(expected) 형식 (loss, (box,obj,cls,total)) 으로 맞춰준다.
+    Criterion → (loss_cls , loss_box , total)
+    run_train_loop → (total , (box,obj,cls,total))  로 어댑터.
+    Obj loss는 YOLOH 에 없으므로 0.0
     """
     def __init__(self, model, num_classes):
-        # Criterion 은 cfg·device·num_classes 가 필요
         self.model = model
-        self.crit  = Criterion(
-            cfg        = model.cfg,          # YOLOH config dict
-            device     = next(model.parameters()).device,
-            num_classes= num_classes,
-            loss_cls_weight = 1.0,
-            loss_reg_weight = 1.0
-        )
+        self.crit  = Criterion(cfg=model.cfg,
+                               device=next(model.parameters()).device,
+                               num_classes=num_classes,
+                               loss_cls_weight=1.0,
+                               loss_reg_weight=1.0)
 
     def __call__(self, preds, targets):
-        # Criterion forward → ( loss_cls , loss_bbox , total_loss )
-        loss_cls, loss_box, total = self.crit(preds, targets, anchor_boxes=None)
+        # txt → Criterion 포맷
+        tgt_list = _yolo_txt_to_targets(targets)
 
-        # run_train_loop 가 원하는 출력
-        loss_total  = total                           # scalar tensor
-        loss_items  = (
-            float(loss_box),    # box
-            0.0,                # obj (없음)
-            float(loss_cls),    # cls
-            float(total)        # total
-        )
+        # Criterion forward
+        loss_cls, loss_box, total = self.crit(preds, tgt_list,
+                                              anchor_boxes=self.model.anchor_boxes)
+
+        loss_total = total
+        loss_items = ( float(loss_box),   # box
+                       0.0,               # obj (no objectness in YOLOH)
+                       float(loss_cls),   # cls
+                       float(total) )     # total
         return loss_total, loss_items
 
 
