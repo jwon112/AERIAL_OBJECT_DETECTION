@@ -2,6 +2,9 @@ from Models.YoloOW.yoloow_utils import build_yoloow_model, train_yoloow_model, e
 from Models.YOLOH.yoloh_utils import build_yoloh_model, train_yoloh_model, eval_yoloh_model, test_yoloh_model
 from functools import partial
 from Models.YOLOH.config.yoloh_config import yoloh_config
+from Models.ultralytics.yolov8_utils import (
+    build_yolov8_model, train_yolov8_model, eval_yolov8_model, test_yolov8_model
+)
 
 model_registry = {
     'YoloOW': {
@@ -21,14 +24,19 @@ model_registry = {
         'train': train_yoloh_model,
         'eval': eval_yoloh_model,
         'test' : test_yoloh_model
-
     },
     'yoloh101' : {
         'build': partial(build_yoloh_model, cfg=yoloh_config['yoloh101']),
         'train': train_yoloh_model,
         'eval': eval_yoloh_model,
         'test' : test_yoloh_model
-    }
+    },
+    'yolov8': {
+        'build': build_yolov8_model,
+        'train': train_yolov8_model,
+        'eval': eval_yolov8_model,
+        'test': test_yolov8_model
+    },
 }
 
 def get_model(model_name, ex_dict):

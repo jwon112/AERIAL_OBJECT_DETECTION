@@ -1,0 +1,21 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+배경: ultralytics 를 가져온 이유는 YOLOH, YoloOW 를 구현하는 중 문제들이 발생하는데, 이 원인이 모델 자체의 특징인지 아님 내 문제인지 알 수 없기 때문에yolov8 같은 안정화된 모델을 비슷하게 구현해봄으로서 원인을 파악하기 위함.
+그래서 목표는 ultralytics 에서 yolov8에 대한 부분들을 뜯어와서 공통된 실험 조건에 통합하여 실험해보는 것이 목표.
+
+Data_Split.ipynb : 데이터 셋을 train/val/test 세트로 분할함
+main.ipynb: 최종적으로 실험 루프를 돌리는 파일
+registry.py: Models 에서 가져온 모델들을 main 으로 보내기 전 정리해주는 버퍼 역할
+/utility/: 내부에 학습 파이프라인을 구성하는데 쓸 수 있는 모듈 파일들이 있음
+/Datasets/: 내부에 여러 데이터셋이 저장됨
+
+Models/ultralytics : ultralytics 패키지의 공식 소스 코드
+Models/YOLOH/yoloh_utils.py : YOLOH 모델의 학습, 평가, 테스트 파이프라인
+Models/YoloOW/yoloow_utils.py : YoloOW 모델의 학습, 평가, 테스트 파이프라인인
+
+이런 구조를 꼭 추종할 필요는 없으나 참고할 필요 있음.
+결론적으로 Models의 각 모델 폴더 안에 모델을 구현하되 밖의 소스코드와 호환될 수 있도록 통일된 인터페이스 구조를 가져야 함.
+
