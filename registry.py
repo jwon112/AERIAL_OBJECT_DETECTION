@@ -31,8 +31,8 @@ model_registry = {
         'eval': eval_yoloh_model,
         'test' : test_yoloh_model
     },
-    'yolov8': {
-        'build': build_yolov8_model,
+    'yolov8n': {
+        'build': partial(build_yolov8_model, cfg='yolov8n.pt'),
         'train': train_yolov8_model,
         'eval': eval_yolov8_model,
         'test': test_yolov8_model

@@ -65,7 +65,7 @@ class UniformMatcher(nn.Module):
                     c[i],
                     k=self.match_times,
                     dim=0,
-                    largest=False)[1].numpy().tolist()
+                    largest=False)[1].cpu().numpy().tolist()
             )
             for i, c in enumerate(C.split(sizes, -1))
         ]
@@ -73,11 +73,11 @@ class UniformMatcher(nn.Module):
         indices1 = [
             tuple(
                 torch.topk(
-                    c[i],
+                    c1[i],
                     k=self.match_times,
                     dim=0,
-                    largest=False)[1].numpy().tolist())
-            for i, c in enumerate(C1.split(sizes, -1))]
+                    largest=False)[1].cpu().numpy().tolist())
+            for i, c1 in enumerate(C1.split(sizes, -1))]
 
         # concat the indices according to image ids
         # img_id = batch_id
