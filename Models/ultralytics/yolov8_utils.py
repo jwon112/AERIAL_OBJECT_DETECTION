@@ -1,4 +1,6 @@
 from ultralytics import YOLO
+import os
+from datetime import datetime
 
 def build_yolov8_model(cfg=None, ex_dict=None):
     # cfg: yaml 경로 or 모델명(str), ex_dict: 실험 정보 dict
@@ -40,6 +42,15 @@ def extract_metrics(results):
 
 def train_yolov8_model(ex_dict):
     model = ex_dict['Model']
+    
+    # Train Time 설정 (다른 모델과 동일한 형식)
+    ex_dict['Train Time'] = datetime.now().strftime("%y%m%d_%H%M%S")
+    
+    # 실험 이름 생성 - iteration 값만 사용하도록 수정
+    # 원래 형식: {Train Time}_{Model Name}_{Dataset Name}_Iter_{Iteration}
+    # 수정: 폴더명 중복이 발생하지 않도록 Iter 대신 iter-only 사용
+    experiment_name = f"{ex_dict['Train Time']}_{ex_dict['Model Name']}_{ex_dict['Dataset Name']}_iteration{ex_dict['Iteration']}"
+    
     # 학습 실행
     results = model.train(
         data=ex_dict['Data Config'],
@@ -48,8 +59,13 @@ def train_yolov8_model(ex_dict):
         imgsz=ex_dict['Image Size'],
         device=ex_dict['Device'],
         project=ex_dict['Output Dir'],
-        name=ex_dict.get('Experiment Name', 'yolov8_train'),
+        name=experiment_name,
     )
+    
+    # PT 파일 경로 저장 (다른 모델과 동일한 형식)
+    pt_path = os.path.join(ex_dict['Output Dir'], experiment_name, 'weights', 'best.pt')
+    ex_dict['PT path'] = pt_path
+    
     # 학습 결과 저장
     ex_dict['Train Results'] = {
         'box_loss': float(results.box_loss) if hasattr(results, 'box_loss') else 0.0,

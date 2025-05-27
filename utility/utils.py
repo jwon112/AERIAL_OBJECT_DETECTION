@@ -118,32 +118,52 @@ def evaluate_model(ex_dict):
     return ex_dict """
     
 def format_measures(results, main_decimals=4, class_decimals=3, speed_decimals=1):
-    eval_dict = {
-        'mAP@0.5': round(results.box.map50, main_decimals),  
-        'mAP@0.5:0.95': round(results.box.map, main_decimals),  
-        'Mean Precision': round(results.box.mp, main_decimals),  
-        'Mean Recall': round(results.box.mr, main_decimals),  
-        'mAP@0.75': round(results.box.map75, main_decimals),  
-    }
+    # 결과가 딕셔너리인 경우 (YOLOoW_CLI) 또는 DetMetrics 객체인 경우 (YOLOv8) 모두 처리
+    try:
+        eval_dict = {
+            'mAP@0.5': round(getattr(results.box, 'map50', 0.0), main_decimals),  
+            'mAP@0.5:0.95': round(getattr(results.box, 'map', 0.0), main_decimals),  
+            'Mean Precision': round(getattr(results.box, 'mp', 0.0), main_decimals),  
+            'Mean Recall': round(getattr(results.box, 'mr', 0.0), main_decimals),  
+            'mAP@0.75': round(getattr(results.box, 'map75', 0.0), main_decimals),  
+        }
+        
+        if hasattr(results.box, 'ap_class_index') and results.box.ap_class_index is not None:
+            for i, class_idx in enumerate(results.box.ap_class_index):
+                if hasattr(results.box, 'names') and results.box.names is not None:
+                    class_name = results.box.names[int(class_idx)]
+                else:
+                    class_name = f"Class_{int(class_idx)}"
+                    
+                # YOLOv8 방식 시도
+                try:
+                    p, r, ap50, ap = results.box.class_result(i)
+                    eval_dict[f'{class_name}/Precision'] = round(p, class_decimals)
+                    eval_dict[f'{class_name}/Recall'] = round(r, class_decimals)
+                    eval_dict[f'{class_name}/mAP@0.5'] = round(ap50, class_decimals)
+                    eval_dict[f'{class_name}/mAP@0.5:0.95'] = round(ap, class_decimals)
+                except (AttributeError, TypeError):
+                    # 메서드가 없는 경우 0으로 설정
+                    eval_dict[f'{class_name}/Precision'] = 0.0
+                    eval_dict[f'{class_name}/Recall'] = 0.0
+                    eval_dict[f'{class_name}/mAP@0.5'] = 0.0
+                    eval_dict[f'{class_name}/mAP@0.5:0.95'] = 0.0
+        
+        if hasattr(results, 'speed'):
+            for k, v in results.speed.items():
+                eval_dict[f'Speed/{k} (ms)'] = round(v, speed_decimals)
+        
+        return eval_dict
     
-    if hasattr(results.box, 'ap_class_index') and results.box.ap_class_index is not None:
-        for i, class_idx in enumerate(results.box.ap_class_index):
-            if hasattr(results.box, 'names') and results.box.names is not None:
-                class_name = results.box.names[int(class_idx)]
-            else:
-                class_name = f"Class_{int(class_idx)}"
-                
-            p, r, ap50, ap = results.box.class_result(i)
-            
-            eval_dict[f'{class_name}/Precision'] = round(p, class_decimals)
-            eval_dict[f'{class_name}/Recall'] = round(r, class_decimals)
-            eval_dict[f'{class_name}/mAP@0.5'] = round(ap50, class_decimals)
-            eval_dict[f'{class_name}/mAP@0.5:0.95'] = round(ap, class_decimals)
-    
-    if hasattr(results, 'speed'):
-        for k, v in results.speed.items():
-            eval_dict[f'Speed/{k} (ms)'] = round(v, speed_decimals)
-    return eval_dict
+    except AttributeError:
+        # 기본 메트릭 반환 (YOLOoW_CLI 또는 다른 구현의 경우)
+        return {
+            'mAP@0.5': 0.0,  
+            'mAP@0.5:0.95': 0.0,  
+            'Mean Precision': 0.0,  
+            'Mean Recall': 0.0,  
+            'mAP@0.75': 0.0,
+        }
 def merge_and_update_df(ex_dict, eval_dict, csv_path=None, exclude_columns=None):
     if exclude_columns is None:
         exclude_columns = []
