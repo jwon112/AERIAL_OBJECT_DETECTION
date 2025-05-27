@@ -7,6 +7,7 @@ import time
 from copy import deepcopy
 from pathlib import Path
 from threading import Thread
+import sys
 
 import numpy as np
 import torch.distributed as dist
@@ -414,6 +415,11 @@ def train(hyp, opt, device, tb_writer=None):
                 s = ('%10s' * 2 + '%10.4g' * 6) % (
                     '%g/%g' % (epoch, epochs - 1), mem, *mloss, targets.shape[0], imgs.shape[-1])
                 pbar.set_description(s)
+                
+                # 명시적인 print 문 추가 (매 10 배치마다)
+                if i % 10 == 0:
+                    print(f"[TRAINING] {s}")
+                    sys.stdout.flush()  # 강제로 출력 버퍼 플러시
 
                 # Plot 
                 # 如果设置了plots并且ni小于10，将当前批次的图像、目标和路径保存为图片文件，并使用多线程异步执行。

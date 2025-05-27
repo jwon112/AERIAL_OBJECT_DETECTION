@@ -4,6 +4,8 @@ import subprocess
 from datetime import datetime
 import torch
 from pathlib import Path
+import yaml
+import tempfile
 
 # YOLOoW 폴더를 시스템 경로에 추가
 YOLOOW_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -26,17 +28,18 @@ def parse_results_txt(results_path):
             
             # 공백으로 분리된 숫자들을 파싱
             values = last_line.split()
-            if len(values) >= 7:  # epoch, gpu_mem, box, obj, cls, total, labels, img_size, P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
+            if len(values) >= 15:  # epoch, gpu_mem, box, obj, cls, total, labels, img_size, P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
                 try:
-                    # 일반적인 YoloOW 결과 형식
+                    # 올바른 YoloOW 결과 형식 (0-based indexing)
+                    # 컬럼 8=P, 9=R, 10=mAP@0.5, 11=mAP@0.5:0.95, 12=box_loss, 13=obj_loss, 14=cls_loss
                     metrics = {
-                        'precision': float(values[-7]) if len(values) > 7 else 0.0,
-                        'recall': float(values[-6]) if len(values) > 6 else 0.0,
-                        'map50': float(values[-5]) if len(values) > 5 else 0.0,
-                        'map': float(values[-4]) if len(values) > 4 else 0.0,
-                        'box_loss': float(values[-3]) if len(values) > 3 else 0.0,
-                        'obj_loss': float(values[-2]) if len(values) > 2 else 0.0,
-                        'cls_loss': float(values[-1]) if len(values) > 1 else 0.0,
+                        'precision': float(values[8]) if len(values) > 8 else 0.0,
+                        'recall': float(values[9]) if len(values) > 9 else 0.0,
+                        'map50': float(values[10]) if len(values) > 10 else 0.0,
+                        'map': float(values[11]) if len(values) > 11 else 0.0,
+                        'box_loss': float(values[12]) if len(values) > 12 else 0.0,
+                        'obj_loss': float(values[13]) if len(values) > 13 else 0.0,
+                        'cls_loss': float(values[14]) if len(values) > 14 else 0.0,
                     }
                     metrics['total_loss'] = metrics['box_loss'] + metrics['obj_loss'] + metrics['cls_loss']
                 except (ValueError, IndexError) as e:
@@ -83,14 +86,50 @@ def train_yoloow_model_cli(ex_dict):
     output_path = os.path.join(ex_dict['Output Dir'], name)
     os.makedirs(output_path, exist_ok=True)
     cfg_path = os.path.join(YOLOOW_DIR, 'cfg', 'training', cfg)
-    hyp_path = os.path.join(YOLOOW_DIR, 'data', 'hyp.scratch.yml')
+    hyp_path = os.path.join(YOLOOW_DIR, 'data', 'hyp.scratch.p5.yaml')
+    
+    # Data Config 경로를 절대 경로로 변환
+    data_config_path = os.path.abspath(ex_dict['Data Config'])
+    print(f"Data Config 절대 경로: {data_config_path}")
+    print(f"Data Config 파일 존재 여부: {os.path.exists(data_config_path)}")
+    
+    # 기존 데이터 설정 파일을 읽어서 절대 경로로 변환한 임시 파일 생성
+    with open(data_config_path, 'r') as f:
+        data_config = yaml.load(f, Loader=yaml.FullLoader)
+    
+    # path를 절대 경로로 변환
+    if 'path' in data_config:
+        original_path = data_config['path']
+        if not os.path.isabs(original_path):
+            # 상대 경로인 경우 프로젝트 루트 기준으로 절대 경로 변환
+            project_root = os.path.dirname(os.path.dirname(YOLOOW_DIR))
+            absolute_path = os.path.abspath(os.path.join(project_root, original_path))
+            data_config['path'] = absolute_path
+            print(f"경로 변환: {original_path} -> {absolute_path}")
+            
+            # train, val, test 경로도 절대 경로로 변환
+            for key in ['train', 'val', 'test']:
+                if key in data_config:
+                    relative_file = data_config[key]
+                    absolute_file_path = os.path.join(absolute_path, relative_file)
+                    data_config[key] = absolute_file_path
+                    print(f"{key} 경로 변환: {relative_file} -> {absolute_file_path}")
+                    print(f"{key} 파일 존재 여부: {os.path.exists(absolute_file_path)}")
+    
+    # 임시 데이터 설정 파일 생성
+    temp_data_file = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+    yaml.dump(data_config, temp_data_file, default_flow_style=False)
+    temp_data_file.close()
+    temp_data_path = temp_data_file.name
+    print(f"임시 데이터 설정 파일: {temp_data_path}")
+    
     cmd = [
         "python",  # sys.executable 대신 python 명령어 사용
         os.path.join(YOLOOW_DIR, 'train.py'),
         f"--workers={ex_dict.get('Num Workers', 0)}",
         f"--device={ex_dict['Device'] if isinstance(ex_dict['Device'], int) else 0}",
         f"--batch-size={ex_dict['Batch Size']}",
-        f"--data={ex_dict['Data Config']}",
+        f"--data={temp_data_path}",  # 임시 파일 사용
         f"--img-size={ex_dict['Image Size']}",
         f"--cfg={cfg_path}",
         f"--weights=",  # 빈 문자열로 설정
@@ -104,11 +143,26 @@ def train_yoloow_model_cli(ex_dict):
     if ex_dict['Optimizer'] == 'AdamW':
         cmd.append("--adam")
     
+    # 디렉토리 이름 중복 방지를 위해 exist-ok 플래그 추가
+    cmd.append("--exist-ok")
+    
     print(f"실행 명령어: {' '.join(cmd)}")
+    
+    # 프로젝트 루트 디렉토리 계산 (YOLOOW_DIR에서 2단계 위로)
+    project_root = os.path.dirname(os.path.dirname(YOLOOW_DIR))
+    print(f"프로젝트 루트 디렉토리: {project_root}")
+    print(f"YoloOW 실행 디렉토리: {YOLOOW_DIR}")
     
     # 더 자세한 디버깅을 위해 실시간 출력 확인
     print("학습 시작...")
-    process = subprocess.Popen(cmd, cwd=YOLOOW_DIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True)
+    # cwd를 프로젝트 루트로 변경하여 상대 경로가 올바르게 작동하도록 함
+    # 환경 변수 설정으로 Python 출력 버퍼링 비활성화
+    env = os.environ.copy()
+    env['PYTHONUNBUFFERED'] = '1'
+    env['TQDM_DISABLE'] = '0'  # tqdm 활성화
+    env['TQDM_NCOLS'] = '80'   # tqdm 너비 설정
+    process = subprocess.Popen(cmd, cwd=project_root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                              text=True, bufsize=0, universal_newlines=True, env=env)
     
     # 실시간으로 출력 확인
     stdout_lines = []
@@ -122,11 +176,12 @@ def train_yoloow_model_cli(ex_dict):
             print(f"[STDOUT] {output.strip()}")
             stdout_lines.append(output.strip())
     
-    # 에러 출력 확인
-    stderr_output = process.stderr.read()
-    if stderr_output:
-        print(f"[STDERR] {stderr_output}")
-        stderr_lines.append(stderr_output)
+    # 에러 출력 확인 (stderr가 None일 수 있으므로 체크)
+    if process.stderr:
+        stderr_output = process.stderr.read()
+        if stderr_output:
+            print(f"[STDERR] {stderr_output}")
+            stderr_lines.append(stderr_output)
     
     return_code = process.poll()
     print(f"학습 프로세스 종료 코드: {return_code}")
@@ -181,6 +236,14 @@ def train_yoloow_model_cli(ex_dict):
         'cls_loss': 0.0,
         'total_loss': 0.0
     }
+    
+    # 임시 파일 정리
+    try:
+        os.unlink(temp_data_path)
+        print(f"임시 파일 삭제: {temp_data_path}")
+    except Exception as e:
+        print(f"임시 파일 삭제 실패: {e}")
+    
     return ex_dict
 
 def eval_yoloow_model_cli(ex_dict):
@@ -265,7 +328,17 @@ def test_yoloow_model_cli(ex_dict):
     results_path = os.path.join(output_path, 'results.txt')
     metrics = parse_results_txt(results_path)
     if metrics:
-        ex_dict["Test Results"] = metrics
+        # 올바른 DetMetrics 구조로 변환
+        ex_dict["Test Results"] = type('DetMetricsDict', (), {
+            'box': type('BoxMetrics', (), {
+                'map': metrics.get('map', 0.0),
+                'map50': metrics.get('map50', 0.0),
+                'map75': metrics.get('map75', 0.0),
+                'mp': metrics.get('precision', 0.0),
+                'mr': metrics.get('recall', 0.0),
+                'ap_class_index': None
+            })
+        })
     else:
         ex_dict["Test Results"] = type('DetMetricsDict', (), {
             'box': type('BoxMetrics', (), {
