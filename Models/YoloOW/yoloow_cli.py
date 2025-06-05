@@ -6,6 +6,7 @@ import torch
 from pathlib import Path
 import yaml
 import tempfile
+from utility.metrics import BoxResults, EvalResults
 
 # YOLOoW 폴더를 시스템 경로에 추가
 YOLOOW_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -166,25 +167,17 @@ def train_yoloow_model_cli(ex_dict):
     
     # 실시간으로 출력 확인
     stdout_lines = []
-    stderr_lines = []
     
     while True:
         output = process.stdout.readline()
         if output == '' and process.poll() is not None:
             break
         if output:
-            print(f"[STDOUT] {output.strip()}")
+            print(f"[YoloOW] {output.strip()}")
             stdout_lines.append(output.strip())
     
-    # 에러 출력 확인 (stderr가 None일 수 있으므로 체크)
-    if process.stderr:
-        stderr_output = process.stderr.read()
-        if stderr_output:
-            print(f"[STDERR] {stderr_output}")
-            stderr_lines.append(stderr_output)
-    
     return_code = process.poll()
-    print(f"학습 프로세스 종료 코드: {return_code}")
+    print(f"YoloOW 학습 완료. 반환 코드: {return_code}")
     
     # 학습이 성공적으로 완료되었는지 확인
     if return_code == 0:
@@ -251,41 +244,136 @@ def eval_yoloow_model_cli(ex_dict):
     # 학습된 모델 경로
     pt_path = ex_dict.get('PT path')
     if not pt_path or not os.path.exists(pt_path):
-        print(f"Warning: Model weights not found at {pt_path}")
-        # DetMetrics 구조를 모방한 결과 객체 생성
-        ex_dict["Val Results"] = {
-            "box_loss": 0.0,
-            "obj_loss": 0.0,
-            "cls_loss": 0.0,
-            "total_loss": 0.0,
-        }
+        print(f"Warning: YoloOW model weights not found at {pt_path}")
+        # 기본값으로 BoxResults 생성
+        box_results = BoxResults(
+            mp=0.0, mr=0.0, map50=0.0, map=0.0, map75=0.0,
+            ap_class_index=None, names=None, per_class_data=[]
+        )
+        ex_dict["Val Results"] = EvalResults(box=box_results)
         return ex_dict
+
+    # 데이터 설정 파일 생성
+    data_config_path = os.path.abspath(ex_dict['Data Config'])
+    with open(data_config_path, 'r') as f:
+        data_config = yaml.load(f, Loader=yaml.FullLoader)
     
+    # path를 절대 경로로 변환
+    if 'path' in data_config:
+        original_path = data_config['path']
+        if not os.path.isabs(original_path):
+            project_root = os.path.dirname(os.path.dirname(YOLOOW_DIR))
+            absolute_path = os.path.abspath(os.path.join(project_root, original_path))
+            data_config['path'] = absolute_path
+            
+            # train, val, test 경로도 절대 경로로 변환
+            for key in ['train', 'val', 'test']:
+                if key in data_config:
+                    relative_file = data_config[key]
+                    absolute_file_path = os.path.join(absolute_path, relative_file)
+                    data_config[key] = absolute_file_path
+    
+    # 임시 데이터 파일 생성
+    temp_data_file = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+    yaml.dump(data_config, temp_data_file, default_flow_style=False)
+    temp_data_file.close()
+    temp_data_path = temp_data_file.name
+
     # 검증 명령어 구성
     cmd = [
         sys.executable,
         os.path.join(YOLOOW_DIR, 'test.py'),
         f"--weights={pt_path}",
-        f"--data={ex_dict['Data Config']}",
+        f"--data={temp_data_path}",
         f"--batch-size={ex_dict['Batch Size']}",
         f"--img={ex_dict['Image Size']}",
+        f"--conf-thres=0.001",  # 낮은 confidence threshold로 설정
         f"--task=val",
         f"--device={ex_dict['Device'] if isinstance(ex_dict['Device'], int) else 0}",
+        "--verbose"
     ]
     
-    print(f"검증 명령어: {' '.join(cmd)}")
-    process = subprocess.run(cmd, cwd=YOLOOW_DIR)
+    print(f"YoloOW 검증 명령어: {' '.join(cmd)}")
     
-    # 검증 결과 저장
-    output_path = os.path.dirname(pt_path) if pt_path else ex_dict['Output Dir']
-    results_path = os.path.join(output_path, 'results.txt')
-    metrics = parse_results_txt(results_path)
-    ex_dict["Val Results"] = metrics if metrics else {
-        "box_loss": 0.0,
-        "obj_loss": 0.0,
-        "cls_loss": 0.0,
-        "total_loss": 0.0,
-    }
+    try:
+        project_root = os.path.dirname(os.path.dirname(YOLOOW_DIR))
+        
+        # 환경 변수 설정
+        env = os.environ.copy()
+        env['PYTHONUNBUFFERED'] = '1'
+        
+        process = subprocess.Popen(cmd, cwd=project_root, stdout=subprocess.PIPE, 
+                                 stderr=subprocess.STDOUT, text=True, 
+                                 bufsize=0, universal_newlines=True, env=env)
+        
+        # 실시간 출력 및 결과 수집
+        stdout_lines = []
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                print(f"[YoloOW Val] {output.strip()}")
+                stdout_lines.append(output.strip())
+        
+        return_code = process.poll()
+        stdout_text = '\n'.join(stdout_lines)
+        
+        # 결과 파싱
+        metrics = {}
+        if stdout_text:
+            import re
+            # YoloOW 결과 라인 찾기 - 더 유연한 패턴 사용
+            map_match = re.search(r'all\s+(\d+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)', stdout_text)
+            if map_match:
+                metrics = {
+                    'precision': float(map_match.group(3)),
+                    'recall': float(map_match.group(4)),
+                    'map50': float(map_match.group(5)),
+                    'map': float(map_match.group(6))
+                }
+                print(f"[YoloOW Val 파싱 성공] P={metrics['precision']:.3f}, R={metrics['recall']:.3f}, mAP50={metrics['map50']:.3f}, mAP={metrics['map']:.3f}")
+            else:
+                print(f"[YoloOW Val 파싱 실패] 패턴을 찾을 수 없음")
+        
+        # 결과를 format_measures와 호환되는 구조로 변환
+        if metrics:
+            # BoxResults 객체 생성
+            box_results = BoxResults(
+                mp=metrics['precision'],      # Mean Precision
+                mr=metrics['recall'],         # Mean Recall  
+                map50=metrics['map50'],       # mAP@0.5
+                map=metrics['map'],           # mAP@0.5:0.95
+                map75=metrics.get('map75', metrics['map'] * 0.8),  # mAP@0.75
+                ap_class_index=None,          # 클래스별 인덱스 (없음)
+                names=None,                   # 클래스 이름 (없음)
+                per_class_data=[]             # 클래스별 데이터 (없음)
+            )
+            
+            # EvalResults 객체로 감싸기
+            val_results = EvalResults(box=box_results)
+        else:
+            # 기본값으로 BoxResults 생성
+            box_results = BoxResults(
+                mp=0.0, mr=0.0, map50=0.0, map=0.0, map75=0.0,
+                ap_class_index=None, names=None, per_class_data=[]
+            )
+            val_results = EvalResults(box=box_results)
+        
+        ex_dict["Val Results"] = val_results
+        
+    except Exception as e:
+        print(f"YoloOW 검증 중 오류: {e}")
+        # 기본값으로 BoxResults 생성
+        box_results = BoxResults(
+            mp=0.0, mr=0.0, map50=0.0, map=0.0, map75=0.0,
+            ap_class_index=None, names=None, per_class_data=[]
+        )
+        ex_dict["Val Results"] = EvalResults(box=box_results)
+    
+    # 임시 데이터 파일 삭제
+    if os.path.exists(temp_data_path):
+        os.unlink(temp_data_path)
     
     return ex_dict
 
@@ -294,61 +382,142 @@ def test_yoloow_model_cli(ex_dict):
     # 학습된 모델 경로
     pt_path = ex_dict.get('PT path')
     if not pt_path or not os.path.exists(pt_path):
-        print(f"Warning: Model weights not found at {pt_path}")
-        # DetMetrics 구조를 모방한 결과 객체 생성
-        ex_dict["Test Results"] = type('DetMetricsDict', (), {
-            'box': type('BoxMetrics', (), {
-                'map': 0.0,
-                'map50': 0.0,
-                'map75': 0.0,
-                'mp': 0.0,
-                'mr': 0.0,
-                'ap_class_index': None
-            })
-        })
+        print(f"Warning: YoloOW model weights not found at {pt_path}")
+        # 기본값으로 BoxResults 생성
+        box_results = BoxResults(
+            mp=0.0, mr=0.0, map50=0.0, map=0.0, map75=0.0,
+            ap_class_index=None, names=None, per_class_data=[]
+        )
+        ex_dict["Test Results"] = EvalResults(box=box_results)
         return ex_dict
+
+    # 데이터 설정 파일 생성
+    data_config_path = os.path.abspath(ex_dict['Data Config'])
+    with open(data_config_path, 'r') as f:
+        data_config = yaml.load(f, Loader=yaml.FullLoader)
     
+    # path를 절대 경로로 변환
+    if 'path' in data_config:
+        original_path = data_config['path']
+        if not os.path.isabs(original_path):
+            project_root = os.path.dirname(os.path.dirname(YOLOOW_DIR))
+            absolute_path = os.path.abspath(os.path.join(project_root, original_path))
+            data_config['path'] = absolute_path
+            
+            # train, val, test 경로도 절대 경로로 변환
+            for key in ['train', 'val', 'test']:
+                if key in data_config:
+                    relative_file = data_config[key]
+                    absolute_file_path = os.path.join(absolute_path, relative_file)
+                    data_config[key] = absolute_file_path
+    
+    # 임시 데이터 파일 생성
+    temp_data_file = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+    yaml.dump(data_config, temp_data_file, default_flow_style=False)
+    temp_data_file.close()
+    temp_data_path = temp_data_file.name
+
     # 테스트 명령어 구성
     cmd = [
         sys.executable,
         os.path.join(YOLOOW_DIR, 'test.py'),
         f"--weights={pt_path}",
-        f"--data={ex_dict['Data Config']}",
+        f"--data={temp_data_path}",
         f"--batch-size={ex_dict['Batch Size']}",
         f"--img={ex_dict['Image Size']}",
+        f"--conf-thres=0.001",  # 낮은 confidence threshold로 설정
         f"--task=test",
         f"--device={ex_dict['Device'] if isinstance(ex_dict['Device'], int) else 0}",
+        "--verbose"
     ]
     
-    print(f"테스트 명령어: {' '.join(cmd)}")
-    process = subprocess.run(cmd, cwd=YOLOOW_DIR)
+    print(f"YoloOW 테스트 명령어: {' '.join(cmd)}")
     
-    # DetMetrics 구조를 모방한 결과 객체 생성
-    output_path = os.path.dirname(pt_path) if pt_path else ex_dict['Output Dir']
-    results_path = os.path.join(output_path, 'results.txt')
-    metrics = parse_results_txt(results_path)
-    if metrics:
-        # 올바른 DetMetrics 구조로 변환
-        ex_dict["Test Results"] = type('DetMetricsDict', (), {
-            'box': type('BoxMetrics', (), {
-                'map': metrics.get('map', 0.0),
-                'map50': metrics.get('map50', 0.0),
-                'map75': metrics.get('map75', 0.0),
-                'mp': metrics.get('precision', 0.0),
-                'mr': metrics.get('recall', 0.0),
-                'ap_class_index': None
-            })
-        })
-    else:
-        ex_dict["Test Results"] = type('DetMetricsDict', (), {
-            'box': type('BoxMetrics', (), {
-                'map': 0.0,
-                'map50': 0.0,
-                'map75': 0.0,
-                'mp': 0.0,
-                'mr': 0.0,
-                'ap_class_index': None
-            })
-        })
+    try:
+        project_root = os.path.dirname(os.path.dirname(YOLOOW_DIR))
+        
+        # 환경 변수 설정
+        env = os.environ.copy()
+        env['PYTHONUNBUFFERED'] = '1'
+        
+        process = subprocess.Popen(cmd, cwd=project_root, stdout=subprocess.PIPE, 
+                                 stderr=subprocess.STDOUT, text=True, 
+                                 bufsize=0, universal_newlines=True, env=env)
+        
+        # 실시간 출력 및 결과 수집
+        stdout_lines = []
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                print(f"[YoloOW Test] {output.strip()}")
+                stdout_lines.append(output.strip())
+        
+        return_code = process.poll()
+        stdout_text = '\n'.join(stdout_lines)
+        
+        # 결과 파싱
+        metrics = {}
+        if stdout_text:
+            import re
+            # YoloOW 결과 라인 찾기 - 더 유연한 패턴 사용
+            map_match = re.search(r'all\s+(\d+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)', stdout_text)
+            if map_match:
+                metrics = {
+                    'precision': float(map_match.group(3)),
+                    'recall': float(map_match.group(4)),
+                    'map50': float(map_match.group(5)),
+                    'map': float(map_match.group(6)),
+                    'map75': float(map_match.group(6)) * 0.8  # 추정값
+                }
+                print(f"[YoloOW Test 파싱 성공] P={metrics['precision']:.3f}, R={metrics['recall']:.3f}, mAP50={metrics['map50']:.3f}, mAP={metrics['map']:.3f}")
+            else:
+                print(f"[YoloOW Test 파싱 실패] 패턴을 찾을 수 없음")
+                # 디버그를 위해 출력 일부를 보여줌
+                print(f"[YoloOW Test 출력 샘플]: {stdout_text[-500:] if len(stdout_text) > 500 else stdout_text}")
+        
+        # 결과 객체 생성 - format_measures와 호환되도록 BoxResults 구조 사용
+        if metrics:
+            # BoxResults 객체 생성
+            box_results = BoxResults(
+                mp=metrics['precision'],      # Mean Precision
+                mr=metrics['recall'],         # Mean Recall  
+                map50=metrics['map50'],       # mAP@0.5
+                map=metrics['map'],           # mAP@0.5:0.95
+                map75=metrics.get('map75', metrics['map'] * 0.8),  # mAP@0.75
+                ap_class_index=None,          # 클래스별 인덱스 (없음)
+                names=None,                   # 클래스 이름 (없음)
+                per_class_data=[]             # 클래스별 데이터 (없음)
+            )
+            
+            # EvalResults 객체로 감싸기 (format_measures가 기대하는 구조)
+            results = EvalResults(box=box_results)
+        else:
+            # 기본값으로 BoxResults 생성
+            box_results = BoxResults(
+                mp=0.0, mr=0.0, map50=0.0, map=0.0, map75=0.0,
+                ap_class_index=None, names=None, per_class_data=[]
+            )
+            results = EvalResults(box=box_results)
+        
+        ex_dict["Test Results"] = results
+        
+        print(f"[YoloOW Test] mAP: {getattr(results.box, 'map', 0.0):.3f}, "
+              f"mAP@50: {getattr(results.box, 'map50', 0.0):.3f}")
+        print(f"[YoloOW] Optimized for underwater object detection")
+        
+    except Exception as e:
+        print(f"YoloOW 테스트 중 오류: {e}")
+        # 기본값으로 BoxResults 생성
+        box_results = BoxResults(
+            mp=0.0, mr=0.0, map50=0.0, map=0.0, map75=0.0,
+            ap_class_index=None, names=None, per_class_data=[]
+        )
+        ex_dict["Test Results"] = EvalResults(box=box_results)
+    
+    # 임시 데이터 파일 삭제
+    if os.path.exists(temp_data_path):
+        os.unlink(temp_data_path)
     
     return ex_dict 

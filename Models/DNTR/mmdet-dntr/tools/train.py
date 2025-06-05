@@ -5,20 +5,33 @@ import os
 import os.path as osp
 import time
 import warnings
+import random
+import numpy as np
 
 import mmcv
 import torch
 import torch.distributed as dist
-from mmcv import Config, DictAction
-from mmcv.runner import get_dist_info, init_dist
-from mmcv.utils import get_git_hash
+from mmengine import Config, DictAction
+from mmengine.dist import get_dist_info, init_dist, sync_random_seed
+from mmengine.utils import get_git_hash
 
 from mmdet import __version__
-from mmdet.apis import init_random_seed, set_random_seed, train_detector
+from mmdet.apis import train_detector
 from mmdet.datasets import build_dataset
 from mmdet.models import build_detector
 from mmdet.utils import (collect_env, get_device, get_root_logger,
                          setup_multi_processes, update_data_root)
+
+
+def set_random_seed(seed, deterministic=False):
+    """Set random seed for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    if deterministic:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 
 def parse_args():
@@ -195,11 +208,11 @@ def main():
 
     cfg.device = get_device()
     # set random seeds
-    seed = init_random_seed(args.seed, device=cfg.device)
+    seed = sync_random_seed(args.seed, device=cfg.device)
     seed = seed + dist.get_rank() if args.diff_seed else seed
     logger.info(f'Set random seed to {seed}, '
                 f'deterministic: {args.deterministic}')
-    set_random_seed(seed, deterministic=args.deterministic)
+    set_random_seed(seed, args.deterministic)
     cfg.seed = seed
     meta['seed'] = seed
     meta['exp_name'] = osp.basename(args.config)

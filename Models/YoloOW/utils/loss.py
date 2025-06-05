@@ -3,6 +3,22 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import sys
+import os
+
+# 프로젝트 루트 경로 추가 (debug_logger import를 위해)
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
+try:
+    from utility.debug_logger import debug_log
+    DEBUG_TO_FILE = True
+except ImportError:
+    DEBUG_TO_FILE = False
+    def debug_log(msg, show_console=False):
+        if show_console:
+            print(f"[DEBUG] {msg}")
 
 from utils.general import bbox_iou, bbox_alpha_iou, box_iou, box_giou, box_diou, box_ciou, xywh2xyxy
 from utils.torch_utils import is_parallel
@@ -470,8 +486,9 @@ class ComputeLoss:
                 #iou = bbox_iou1(pbox.T, tbox[i], x1y1x2y2=False, SIoU=True)  # iou(prediction, target)
                 iou = bbox_iou(pbox.T, tbox[i], x1y1x2y2=False, CIoU=True)
 
-                print(f"[DEBUG] Head {i} | iou.min={iou.min():.4f}, iou.max={iou.max():.4f}, iou.mean={iou.mean():.4f}")
-                print(f"[DEBUG] Head {i} | ps[..., 4].sigmoid().mean = {ps[:, 4].sigmoid().mean():.4f}")
+                # ✅ DEBUG 로그를 파일로 저장 (콘솔 출력 최소화)
+                debug_log(f"Head {i} | iou.min={iou.min():.4f}, iou.max={iou.max():.4f}, iou.mean={iou.mean():.4f}")
+                debug_log(f"Head {i} | ps[..., 4].sigmoid().mean = {ps[:, 4].sigmoid().mean():.4f}")
                 
 
                 if type(iou) is tuple:

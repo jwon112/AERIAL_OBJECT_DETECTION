@@ -198,6 +198,8 @@ def evaluate_yolo_predictions(preds, gts, iou_thres=0.5, save_dir=None):
     # Evaluate predictions and optionally save PR/ROC curves
     tp, conf, pred_cls, target_cls = [], [], [], []
 
+    print(f"[DEBUG_EVAL] evaluate_yolo_predictions 시작 - 예측: {len(preds)}, 타겟: {len(gts)}")
+
     for i, (pred, gt) in enumerate(zip(preds, gts)):
         if pred is None or len(pred) == 0:
             if gt is not None:
@@ -205,38 +207,107 @@ def evaluate_yolo_predictions(preds, gts, iou_thres=0.5, save_dir=None):
                     target_cls.append(int(target[0]))
             continue
 
-        pred = torch.tensor(pred)
-        gt = torch.tensor(gt)
+        # 디버깅 정보 출력 (첫 번째 배치만)
+        if i < 2:
+            print(f"[DEBUG_EVAL] 배치 {i} - 예측 형태: {pred.shape if hasattr(pred, 'shape') else type(pred)}")
+            print(f"[DEBUG_EVAL] 배치 {i} - 타겟 형태: {gt.shape if hasattr(gt, 'shape') else type(gt)}")
+            if hasattr(pred, 'shape') and len(pred) > 0:
+                print(f"[DEBUG_EVAL] 배치 {i} - 첫 예측: {pred[0]}")
+            if hasattr(gt, 'shape') and len(gt) > 0:
+                print(f"[DEBUG_EVAL] 배치 {i} - 첫 타겟: {gt[0]}")
+
+        pred = torch.tensor(pred) if not isinstance(pred, torch.Tensor) else pred
+        gt = torch.tensor(gt) if not isinstance(gt, torch.Tensor) else gt
 
         correct = torch.zeros(pred.shape[0], dtype=torch.bool)
 
-        tcls = gt[:, 0].tolist()
-        tboxes = gt[:, 1:5]
+        # 타겟 형식 확인 및 변환
+        if gt.shape[1] == 6:
+            # [batch_idx, cls, cx, cy, w, h] -> [cls, x1, y1, x2, y2]
+            tcls = gt[:, 1].tolist()  # 클래스는 두 번째 열
+            # cx, cy, w, h -> x1, y1, x2, y2 변환
+            cx, cy, w, h = gt[:, 2], gt[:, 3], gt[:, 4], gt[:, 5]
+            x1 = cx - w / 2
+            y1 = cy - h / 2
+            x2 = cx + w / 2
+            y2 = cy + h / 2
+            tboxes = torch.stack([x1, y1, x2, y2], dim=1)
+        elif gt.shape[1] == 5:
+            # [cls, x1, y1, x2, y2] 또는 [cls, cx, cy, w, h]
+            tcls = gt[:, 0].tolist()
+            if torch.all(gt[:, 3] > gt[:, 1]) and torch.all(gt[:, 4] > gt[:, 2]):
+                # 이미 x1, y1, x2, y2 형식
+                tboxes = gt[:, 1:5]
+            else:
+                # cx, cy, w, h -> x1, y1, x2, y2 변환
+                cx, cy, w, h = gt[:, 1], gt[:, 2], gt[:, 3], gt[:, 4]
+                x1 = cx - w / 2
+                y1 = cy - h / 2
+                x2 = cx + w / 2
+                y2 = cy + h / 2
+                tboxes = torch.stack([x1, y1, x2, y2], dim=1)
+        else:
+            print(f"[DEBUG_EVAL] 예상치 못한 타겟 형태: {gt.shape}")
+            continue
+
+        # 예측 형식 확인 - [x1, y1, x2, y2, conf, cls] 형식이어야 함
+        if pred.shape[1] < 6:
+            print(f"[DEBUG_EVAL] 예상치 못한 예측 형태: {pred.shape}")
+            continue
+
+        # 디버깅: IoU 계산 전 박스 좌표 확인
+        if i < 2:
+            print(f"[DEBUG_EVAL] 배치 {i} - 변환된 타겟 클래스: {tcls}")
+            print(f"[DEBUG_EVAL] 배치 {i} - 변환된 타겟 박스: {tboxes}")
+            print(f"[DEBUG_EVAL] 배치 {i} - 예측 박스: {pred[:, :4]}")
+            print(f"[DEBUG_EVAL] 배치 {i} - 예측 클래스: {pred[:, 5]}")
 
         if len(tboxes):
-            ious = bbox_iou(pred[:, :4], tboxes)
+            ious = box_iou(pred[:, :4], tboxes)
+            
+            if i < 2:
+                print(f"[DEBUG_EVAL] 배치 {i} - IoU 매트릭스: {ious}")
+            
             x = torch.where(ious >= iou_thres)
             if x[0].numel():
                 matches = torch.cat((torch.stack(x, 1), ious[x[0], x[1]].unsqueeze(1)), 1)
                 matches = matches.cpu().numpy()
+                
+                if i < 2:
+                    print(f"[DEBUG_EVAL] 배치 {i} - 매치 (IoU >= {iou_thres}): {matches}")
+                
                 if matches.shape[0] > 1:
                     matches = matches[matches[:, 2].argsort()[::-1]]
                     matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
                     matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
 
                 correct[matches[:, 0].astype(int)] = True
+                
+                if i < 2:
+                    print(f"[DEBUG_EVAL] 배치 {i} - 정확한 예측: {correct}")
 
         tp.extend(correct.numpy())
         conf.extend(pred[:, 4].numpy())
         pred_cls.extend(pred[:, 5].int().numpy())
-        target_cls.extend(gt[:, 0].int().numpy())
+        target_cls.extend(tcls)
 
     tp = np.array(tp)
     conf = np.array(conf)
     pred_cls = np.array(pred_cls)
     target_cls = np.array(target_cls)
 
+    print(f"[DEBUG_EVAL] 전체 통계:")
+    print(f"  TP: {tp.sum()}/{len(tp)}")
+    print(f"  예측 클래스: {np.unique(pred_cls)}")
+    print(f"  타겟 클래스: {np.unique(target_cls)}")
+
     precision, recall, ap, ap_class = ap_per_class(tp, conf, pred_cls, target_cls)
+
+    print(f"[DEBUG_EVAL] AP 계산 결과:")
+    print(f"  Precision: {precision}")
+    print(f"  Recall: {recall}")
+    print(f"  AP: {ap}")
+    print(f"  mAP: {ap.mean() if len(ap) > 0 else 0.0}")
 
     if save_dir:
         save_dir = Path(save_dir)

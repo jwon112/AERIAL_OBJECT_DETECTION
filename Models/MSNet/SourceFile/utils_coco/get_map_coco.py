@@ -1,4 +1,6 @@
 import json
+import pickle
+import shutil
 import os
 
 import numpy as np
@@ -8,8 +10,8 @@ from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 from tqdm import tqdm
 
-from ..utils.utils import cvtColor, preprocess_input, resize_image
-from ..yolo import YOLO
+from utils.utils import cvtColor, preprocess_input, resize_image
+from yolo import YOLO
 
 #---------------------------------------------------------------------------#
 #   map_mode用于指定该文件运行时计算的内容

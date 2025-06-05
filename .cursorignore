@@ -1,0 +1,103 @@
+# Add directories or file patterns to ignore during indexing (e.g. foo/ or *.csv)
+
+# Large data and output directories
+# Datasets/ - Allow dataset config files but exclude actual data
+Datasets/*/images/
+Datasets/*/labels/
+logs/
+output/
+runs/
+
+# Cache and build directories
+__pycache__/
+.git/
+.cursor/
+
+# Specific subdirectories in Models that are not code
+Models/*/output/
+Models/*/logs/
+Models/*/runs/
+Models/*/examples/
+Models/*/docs/
+Models/*/tests/
+Models/*/deploy/
+Models/*/.pytest_cache/
+Models/*/ultralytics.egg-info/
+
+# Model weight files
+*.pt
+*.pth
+*.ckpt
+*.weights
+*.h5
+*.pkl
+*.pickle
+
+# Data files (exclude requirements and important config files)
+*.csv
+*.json
+*.xml
+*.log
+
+# Text files (exclude requirements files)
+*.txt
+!requirements*.txt
+!*requirements*.txt
+!environment*.txt
+!dependencies*.txt
+!setup.txt
+!install*.txt
+
+# Configuration files (exclude important ones)
+*.toml
+!pyproject.toml
+!requirements.toml
+!environment.toml
+
+*.yml
+!requirements*.yml
+!environment*.yml
+!conda*.yml
+!docker*.yml
+
+*.yaml
+!requirements*.yaml
+!environment*.yaml
+!conda*.yaml
+!docker*.yaml
+
+# Keep important project files
+!mkdocs.yml
+!.github/workflows/*.yml
+!.github/workflows/*.yaml
+
+# Documentation (keep important ones)
+CONTRIBUTING.md
+LICENSE
+CITATION.cff
+
+# Image and video files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.mp4
+*.avi
+*.mov
+
+# Excel files
+*.xlsx
+*.xls
+
+# Compressed files
+*.zip
+*.tar
+*.gz
+*.rar
+
+# Shell scripts (usually not needed for indexing)
+*.sh
+*.bat
+*.cmd

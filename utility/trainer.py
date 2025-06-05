@@ -10,6 +10,14 @@ import numpy as np
 import torch
 from utility.metrics import box_iou
 
+# ✅ DEBUG 로거 import
+try:
+    from utility.debug_logger import debug_log
+except ImportError:
+    def debug_log(msg, show_console=False):
+        if show_console:
+            print(f"[DEBUG] {msg}")
+
 def check_anchors(dataset, model, imgsz=640, threshold=4.0):
     print("\n[trainer] 🔍 Checking anchor fit to dataset...")
     if not hasattr(model, "anchors") or model.anchors is None:
@@ -53,6 +61,14 @@ def check_anchors(dataset, model, imgsz=640, threshold=4.0):
     else:
         print(f"[trainer] ✅ Anchor fit okay (mean best IoU: {best_ratio:.2f}).")
 
+def _safe_item(val):
+    """tensor 또는 float/int 값을 안전하게 float로 변환"""
+    if hasattr(val, 'detach'):
+        return val.detach().item()
+    elif hasattr(val, 'item'):
+        return val.item()
+    else:
+        return float(val)
 
 def run_train_loop(
     model,
@@ -85,9 +101,9 @@ def run_train_loop(
             
             if i == 0 and epoch == 0:          # 최초 1회만
                 # targets → collate_fn 에 의해 (N,6) Tensor 또는 0-크기 Tensor
-                print("\n[DEBUG] first batch target rows =", targets.shape[0])
+                debug_log(f"first batch target rows = {targets.shape[0]}", show_console=True)
                 if targets.shape[0]:
-                    print("[DEBUG] first 5 targets:\n", targets[:5].cpu())
+                    debug_log(f"first 5 targets:\n{targets[:5].cpu()}", show_console=True)
 
             imgs = imgs.to(device)
             targets = [t.to(device) for t in targets] if isinstance(targets, list) else targets.to(device)
@@ -111,19 +127,42 @@ def run_train_loop(
             loss.backward()
             optimizer.step()
 
-            total_loss += loss.item()
+            total_loss += loss.detach().item()
             global_step += 1
 
             if (i + 1) % print_interval == 0 or (i + 1) == len(train_loader):
                 current_lr = optimizer.param_groups[0]["lr"]
-                loop.set_postfix({
-                    "Loss": f"{loss.item():.4f}",
-                    "box": f"{loss_items[0]:.3f}",
-                    "obj": f"{loss_items[1]:.3f}",
-                    "cls": f"{loss_items[2]:.3f}",
-                    "total loss": f"{loss_items[3]:.3f}",
-                    "lr": f"{current_lr:.6f}"
-                })
+                # ✅ 안전한 값 변환 사용 (tensor 또는 float 모두 처리)
+                loss_val = _safe_item(loss)
+                
+                # ✅ 손실 항목 개수에 따른 적응적 처리
+                if len(loss_items) == 3:
+                    # FFCA-YOLO 스타일: [box, obj, cls]
+                    total_loss_val = loss_val  # 실제 total loss 사용
+                    loop.set_postfix({
+                        "Loss": f"{loss_val:.4f}",
+                        "box": f"{_safe_item(loss_items[0]):.3f}",
+                        "obj": f"{_safe_item(loss_items[1]):.3f}",
+                        "cls": f"{_safe_item(loss_items[2]):.3f}",
+                        "total": f"{total_loss_val:.3f}",
+                        "lr": f"{current_lr:.6f}"
+                    })
+                elif len(loss_items) >= 4:
+                    # 일반적인 YOLO 스타일: [box, obj, cls, total]
+                    loop.set_postfix({
+                        "Loss": f"{loss_val:.4f}",
+                        "box": f"{_safe_item(loss_items[0]):.3f}",
+                        "obj": f"{_safe_item(loss_items[1]):.3f}",
+                        "cls": f"{_safe_item(loss_items[2]):.3f}",
+                        "total": f"{_safe_item(loss_items[3]):.3f}",
+                        "lr": f"{current_lr:.6f}"
+                    })
+                else:
+                    # 예외적인 경우: 기본 정보만 표시
+                    loop.set_postfix({
+                        "Loss": f"{loss_val:.4f}",
+                        "lr": f"{current_lr:.6f}"
+                    })
 
         scheduler.step()
         epoch_time = time.time() - start_time
