@@ -898,87 +898,79 @@ def preprocess_gt(gt_path, class_names):
     return results
 
 def preprocess_dr(dr_path, class_names):
-    image_ids = os.listdir(dr_path)
+    """
+    detection-results 폴더의 txt 파일들을 읽어 COCO 형식의 list로 변환합니다.
+    bbox는 (x,y,w,h) 형식입니다.
+    """
+    # 클래스 이름을 ID로 매핑
+    class_mapping = {name: i for i, name in enumerate(class_names)}
+    
     results = []
-    print(f"[DEBUG] preprocess_dr: Found {len(image_ids)} detection files in {dr_path}")
-    for image_id in image_ids:
-        lines_list = file_lines_to_list(os.path.join(dr_path, image_id))
-        original_image_id = image_id
-        image_id = os.path.splitext(image_id)[0]
-        if len(lines_list) > 0:
-            print(f"[DEBUG] DR preprocess: {original_image_id} -> image_id: {image_id}")
-            print(f"[DEBUG] Processing {image_id}: {len(lines_list)} detections, first line: {lines_list[0]}")
-        for line in lines_list:
-            line_split = line.split()
-            confidence, left, top, right, bottom = line_split[-5:]
-            class_name = ""
-            for name in line_split[:-5]:
-                class_name += name + " "
-            class_name = class_name[:-1]
-            
-            # 과학적 표기법 처리
-            try:
-                left = float(left)
-                top = float(top)
-                right = float(right)
-                bottom = float(bottom)
-                confidence = float(confidence)
-            except ValueError as e:
-                print(f"[WARNING] Failed to parse coordinates in line: {line}")
-                print(f"[WARNING] Error: {str(e)}")
+    # detection-results 폴더의 모든 txt 파일에 대해 반복
+    for f in glob.glob(os.path.join(dr_path, "*.txt")):
+        image_id = int(os.path.basename(f).split(".txt")[0])
+        
+        lines = file_lines_to_list(f)
+        for line in lines:
+            parts = line.split()
+            if len(parts) != 6:
                 continue
+                
+            class_name, score, x1, y1, x2, y2 = parts
             
-            # 음수 좌표 처리 (0으로 클리핑)
-            left = max(0, left)
-            top = max(0, top)
-            right = max(0, right)
-            bottom = max(0, bottom)
+            # COCO 형식으로 변환
+            x = float(x1)
+            y = float(y1)
+            w = float(x2) - float(x1)
+            h = float(y2) - float(y1)
             
-            result = {}
-            result["image_id"] = str(image_id)
-            if class_name not in class_names:
-                continue
-            result["category_id"] = class_names.index(class_name) + 1
-            result["bbox"] = [left, top, right - left, bottom - top]
-            result["score"] = confidence
-            results.append(result)
+            # 결과 추가
+            results.append({
+                "image_id": image_id,
+                "category_id": class_mapping[class_name],
+                "bbox": [x, y, w, h],
+                "score": float(score)
+            })
     return results
- 
+
 def get_coco_map(class_names, path):
-    GT_PATH     = os.path.join(path, 'ground-truth')
-    DR_PATH     = os.path.join(path, 'detection-results')
-    COCO_PATH   = os.path.join(path, 'coco_eval')
+    """
+    COCO 형식의 mAP를 계산합니다.
+    (x,y,w,h) 형식의 bbox를 사용합니다.
+    """
+    map_out_path = os.path.join(path, 'coco_eval')
+    if not os.path.exists(map_out_path):
+        os.makedirs(map_out_path)
 
-    if not os.path.exists(COCO_PATH):
-        os.makedirs(COCO_PATH)
+    gt_path = os.path.join(path, "ground-truth")
+    dr_path = os.path.join(path, "detection-results")
 
-    GT_JSON_PATH = os.path.join(COCO_PATH, 'instances_gt.json')
-    DR_JSON_PATH = os.path.join(COCO_PATH, 'instances_dr.json')
+    # ground truth 전처리
+    coco_gt_result = preprocess_gt(gt_path, class_names)
+    with open(os.path.join(map_out_path, 'coco_gt.json'), 'w') as f:
+        json.dump(coco_gt_result, f)
+    
+    # detection results 전처리
+    coco_dr_result = preprocess_dr(dr_path, class_names)
+    with open(os.path.join(map_out_path, 'coco_dr.json'), 'w') as f:
+        json.dump(coco_dr_result, f)
 
-    with open(GT_JSON_PATH, "w") as f:
-        results_gt  = preprocess_gt(GT_PATH, class_names)
-        json.dump(results_gt, f, indent=4)
+    # COCO 평가
+    cocoGt = COCO(os.path.join(map_out_path, 'coco_gt.json'))
+    cocoDt = cocoGt.loadRes(os.path.join(map_out_path, 'coco_dr.json'))
 
-    with open(DR_JSON_PATH, "w") as f:
-        results_dr  = preprocess_dr(DR_PATH, class_names)
-        json.dump(results_dr, f, indent=4)
-        print(f"[DEBUG] Total detection results: {len(results_dr)}")
-        if len(results_dr) == 0:
-            print("未检测到任何目标。")
-            # 디버깅을 위해 detection-results 폴더 내용 확인
-            print(f"[DEBUG] Files in {DR_PATH}:")
-            for file in os.listdir(DR_PATH):
-                file_path = os.path.join(DR_PATH, file)
-                with open(file_path, 'r') as f_check:
-                    content = f_check.read().strip()
-                    print(f"  {file}: {'Empty' if not content else f'{len(content.splitlines())} lines'}")
-            return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-
-    cocoGt      = COCO(GT_JSON_PATH)
-    cocoDt      = cocoGt.loadRes(DR_JSON_PATH)
-    cocoEval    = COCOeval(cocoGt, cocoDt, 'bbox')
+    cocoEval = COCOeval(cocoGt, cocoDt, 'bbox')
     cocoEval.evaluate()
     cocoEval.accumulate()
     cocoEval.summarize()
-
-    return cocoEval.stats
+    
+    # 평가 결과 반환
+    stats = cocoEval.stats
+    return {
+        "mAP": stats[0],
+        "AP50": stats[1],
+        "AP75": stats[2],
+        "APs": stats[3],
+        "APm": stats[4],
+        "APl": stats[5]
+    }

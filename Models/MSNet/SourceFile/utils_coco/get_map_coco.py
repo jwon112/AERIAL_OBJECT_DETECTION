@@ -245,10 +245,41 @@ def generate_detections(yolo_model, data_yaml, map_out_path):
     print(f"Detection results generated in {os.path.join(map_out_path, 'detection-results')}")
 
 #------------------------------------------
-def get_coco_map(class_names, path):
+def get_coco_map(class_names, path, data_yaml):
     #---------------------------------------------------#
     #   map_out에 있는 detection-results와 ground-truth를 이용하여 mAP를 계산
     #---------------------------------------------------#
+    
+    # 데이터 YAML 파일에서 val 이미지 목록 읽기
+    image_paths = []
+    try:
+        with open(data_yaml, 'r', encoding='utf-8') as f:
+            data_config = yaml.safe_load(f)
+        val_path = data_config.get('val', '')
+        if not os.path.isabs(val_path):
+            val_path = os.path.join(os.path.dirname(data_yaml), val_path)
+        with open(val_path, 'r') as f:
+            image_paths = [line.strip() for line in f.readlines()]
+    except Exception as e:
+        print(f"Error reading validation image paths from {data_yaml}: {e}")
+
+    # 이미지 ID를 키로, 실제 크기를 값으로 하는 딕셔너리 생성
+    image_dims = {}
+    if image_paths:
+        print("Reading image dimensions...")
+        for image_path in tqdm(image_paths, desc="Reading image sizes"):
+            try:
+                image_id_str = os.path.splitext(os.path.basename(image_path))[0]
+                image_id = int(image_id_str)
+                with Image.open(image_path) as img:
+                    width, height = img.size
+                    image_dims[image_id] = (width, height)
+                    # 실제 이미지 크기 확인용 로그 추가
+                    if len(image_dims) < 5: # 처음 5개 이미지만 로그 출력
+                        print(f"[DEBUG] Image ID {image_id}: 실제 크기 {width}x{height} 읽음")
+            except Exception as e:
+                print(f"Warning: Could not process image {image_path}: {e}")
+
     MINOVERLAP = 0.5
     #-------------------------------------------------------#
     #   ground-truth와 detection-results의 경로
@@ -314,12 +345,18 @@ def get_coco_map(class_names, path):
         image_name = gt_file.replace('.txt', '.jpg')
         image_id = int(gt_file.replace('.txt', ''))  # 파일명을 숫자로 변환 (001.txt -> 1)
         
-        # 이미지 정보 추가
+        # 이미지 정보 추가 (수정된 부분)
+        width, height = image_dims.get(image_id, (640, 640)) # 실제 크기 사용, 없으면 기본값
+        
+        # JSON에 기록될 크기 확인용 로그 추가
+        if image_id in list(image_dims.keys())[:5]: # 처음 5개 ID에 대해서만 로그 출력
+            print(f"[DEBUG] Image ID {image_id}: JSON에 {width}x{height} 크기로 기록 예정")
+            
         coco_gt["images"].append({
             "id": image_id,
             "file_name": image_name,
-            "width": 640,  # 기본값 (실제 크기는 중요하지 않음)
-            "height": 640  # 기본값 (실제 크기는 중요하지 않음)
+            "width": width,
+            "height": height
         })
         
         # 어노테이션 정보 추가
@@ -361,27 +398,46 @@ def get_coco_map(class_names, path):
             
         image_id = int(dt_file.replace('.txt', ''))  # 파일명을 숫자로 변환 (001.txt -> 1)
         
+        # 이미지 크기 가져오기
+        img_width, img_height = image_dims.get(image_id, (640, 640))
+        
         with open(os.path.join(detection_results_path, dt_file), 'r') as f:
             for line in f:
                 parts = line.strip().split()
-                if len(parts) < 6:  # class_name, x_center, y_center, width, height, confidence
+                if len(parts) < 6:  # class_name, confidence, left, top, right, bottom
                     continue
                     
                 class_name = " ".join(parts[:-5])  # 클래스명이 여러 단어일 수 있음
                 if class_name not in class_names:
                     continue
                     
-                x_center, y_center, width, height, confidence = map(float, parts[-5:])
+                confidence, left, top, right, bottom = map(float, parts[-5:])
                 category_id = class_names.index(class_name) + 1
                 
-                # YOLO 형식 -> COCO 형식 변환
-                x = x_center - width / 2
-                y = y_center - height / 2
+                # confidence 값을 0~1 범위로 정규화 (sigmoid 적용)
+                if confidence > 1.0:
+                    confidence = 1.0 / (1.0 + np.exp(-confidence))
+                
+                # MSNet 형식은 이미 절대 좌표이므로 COCO 형식으로 변환만 하면 됨
+                x = left
+                y = top
+                w = right - left
+                h = bottom - top
+                
+                # 좌표가 이미지 범위를 벗어나지 않도록 클리핑
+                x = max(0, min(x, img_width - 1))
+                y = max(0, min(y, img_height - 1))
+                w = max(1, min(w, img_width - x))
+                h = max(1, min(h, img_height - y))
+                
+                # confidence가 너무 낮으면 제외
+                if confidence < 0.01:
+                    continue
                 
                 coco_dt.append({
                     "image_id": image_id,
                     "category_id": category_id,
-                    "bbox": [x, y, width, height],
+                    "bbox": [x, y, w, h],
                     "score": confidence
                 })
     
@@ -486,7 +542,7 @@ def main():
 
     if opt.map_mode == 0 or opt.map_mode == 2:
         # COCO 평가 수행
-        results = get_coco_map(class_names, opt.map_out_path)
+        results = get_coco_map(class_names, opt.map_out_path, opt.data_yaml)
         print("Evaluation Results:")
         for key, value in results.items():
             print(f"{key}: {value:.4f}")

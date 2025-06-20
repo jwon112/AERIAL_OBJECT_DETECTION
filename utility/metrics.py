@@ -136,6 +136,13 @@ def ap_per_class(tp, conf, pred_cls, target_cls, eps=1e-16):
 # ──────────────────────────────────────────────────────────────
 from utility.metrics import ap_per_class   # 기존 함수 재사용
 
+def calculate_map(tp, conf, pred_cls, target_cls, iouv=None):
+    """
+    calculate_map: compute_coco_map의 래퍼 함수
+    일관된 인터페이스를 제공하기 위한 함수
+    """
+    return compute_coco_map(tp, conf, pred_cls, target_cls, iouv)
+
 def compute_coco_map(tp, conf, pred_cls, target_cls, iouv=None):
     """
     ⬇️  IoU set(iouv)별 Precision/Recall/AP 계산
@@ -183,6 +190,13 @@ def compute_ap(recall, precision):
     ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
     return ap
 
+# Alias for compatibility with unified model imports
+calculate_ap = compute_ap
+
+def calculate_precision_recall(tp, conf, pred_cls, target_cls, iou_thres=0.5):
+    # Precision, Recall 계산 (기본적으로 ap_per_class 사용)
+    precision, recall, ap, unique_classes = ap_per_class(tp, conf, pred_cls, target_cls, iou_thres)
+    return precision, recall
 
 def xywh2xyxy(x):
     # Convert [cx, cy, w, h] to [x1, y1, x2, y2]
