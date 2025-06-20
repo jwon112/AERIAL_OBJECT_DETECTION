@@ -21,7 +21,7 @@ from datetime import datetime
 
 from utility.debug_logger import debug_log
 from utility.metrics import calculate_batch_metrics
-from utility.utils import save_checkpoint, load_checkpoint
+from utility.checkpoint import save_checkpoint, load_checkpoint
 
 class TrainingLoop:
     """

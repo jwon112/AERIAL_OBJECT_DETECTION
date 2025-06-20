@@ -12,6 +12,10 @@ from utility.metrics import BoxResults, EvalResults
 YOLOOW_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(YOLOOW_DIR)
 
+# 프로젝트 루트 디렉토리도 시스템 경로에 추가 (utility 모듈 접근용)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(YOLOOW_DIR))
+sys.path.append(PROJECT_ROOT)
+
 def parse_results_txt(results_path):
     metrics = {}
     if not os.path.exists(results_path):

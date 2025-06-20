@@ -87,22 +87,11 @@ class TaskAlignedAssigner(nn.Module):
 
     @torch.no_grad()
     def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt):
-        """This code referenced to
-           https://github.com/Nioolek/PPYOLOE_pytorch/blob/master/ppyoloe/assigner/tal_assigner.py
-
-        Args:
-            pd_scores (Tensor)  : shape(bs, num_total_anchors, num_classes)
-            pd_bboxes (Tensor)  : shape(bs, num_total_anchors, 4)
-            anc_points (Tensor) : shape(num_total_anchors, 2)
-            gt_labels (Tensor)  : shape(bs, n_max_boxes, 1)
-            gt_bboxes (Tensor)  : shape(bs, n_max_boxes, 4)
-            mask_gt (Tensor)    : shape(bs, n_max_boxes, 1)
-        Returns:
-            target_labels (Tensor)  : shape(bs, num_total_anchors)
-            target_bboxes (Tensor)  : shape(bs, num_total_anchors, 4)
-            target_scores (Tensor)  : shape(bs, num_total_anchors, num_classes)
-            fg_mask (Tensor)        : shape(bs, num_total_anchors)
-        """
+        print("[DEBUG] TaskAlignedAssigner input:")
+        print(f"  gt_labels shape: {gt_labels.shape}, non-zero: {torch.count_nonzero(gt_labels)}")
+        print(f"  gt_bboxes shape: {gt_bboxes.shape}, range: [{gt_bboxes.min():.2f}, {gt_bboxes.max():.2f}]")
+        print(f"  anc_points shape: {anc_points.shape}, range: [{anc_points.min():.2f}, {anc_points.max():.2f}]")
+        
         # 获得batch_size
         self.bs             = pd_scores.size(0)
         # 获得真实框中的最大框数量
@@ -121,11 +110,13 @@ class TaskAlignedAssigner(nn.Module):
         # align_metric  某个先验点属于某个真实框的类的概率乘上某个先验点与真实框的重合程度
         # overlaps      所有真实框和锚点的重合程度
         mask_pos, align_metric, overlaps = self.get_pos_mask(pd_scores, pd_bboxes, gt_labels, gt_bboxes, anc_points, mask_gt)
+        print(f"  IoU range: [{overlaps.min():.2f}, {overlaps.max():.2f}]")
 
         # target_gt_idx     b, 8400     每个anchor符合哪个gt
         # fg_mask           b, 8400     每个anchor是否有符合的gt
         # mask_pos          b, max_num_obj, 8400    one_hot后的target_gt_idx
         target_gt_idx, fg_mask, mask_pos = select_highest_overlaps(mask_pos, overlaps, self.n_max_boxes)
+        print(f"  Number of positive matches: {torch.count_nonzero(fg_mask)}")
 
         # 指定目标到对应的anchor点上
         # b, 8400
@@ -246,7 +237,17 @@ class TaskAlignedAssigner(nn.Module):
             target_gt_idx   : (b, h*w)
             fg_mask         : (b, h*w)
         """
-
+        print(f"[DEBUG get_targets] Input shapes:")
+        print(f"  gt_labels: {gt_labels.shape}")
+        print(f"  gt_bboxes: {gt_bboxes.shape}")
+        print(f"  target_gt_idx: {target_gt_idx.shape}")
+        print(f"  fg_mask: {fg_mask.shape}")
+        
+        print(f"[DEBUG get_targets] Input values:")
+        print(f"  gt_labels range: [{gt_labels.min().item():.4f}, {gt_labels.max().item():.4f}]")
+        print(f"  gt_bboxes range: [{gt_bboxes.min().item():.4f}, {gt_bboxes.max().item():.4f}]")
+        print(f"  fg_mask sum: {fg_mask.sum().item()}")
+        
         # 用于读取真实框标签, (b, 1)
         batch_ind       = torch.arange(end=self.bs, dtype=torch.int64, device=gt_labels.device)[..., None]
         # b, h*w    获得gt_labels，gt_bboxes在flatten后的序号
@@ -256,13 +257,22 @@ class TaskAlignedAssigner(nn.Module):
         # b, h*w, 4 用于flatten后读取box
         target_bboxes   = gt_bboxes.view(-1, 4)[target_gt_idx]
         
+        print(f"[DEBUG get_targets] After indexing:")
+        print(f"  target_labels range: [{target_labels.min().item():.4f}, {target_labels.max().item():.4f}]")
+        print(f"  target_bboxes range: [{target_bboxes.min().item():.4f}, {target_bboxes.max().item():.4f}]")
+        
         # assigned target scores
         target_labels.clamp(0)
         # 进行one_hot映射到训练需要的形式。
         target_scores   = F.one_hot(target_labels, self.num_classes)  # (b, h*w, 80)
         fg_scores_mask  = fg_mask[:, :, None].repeat(1, 1, self.num_classes)  # (b, h*w, 80)
         target_scores   = torch.where(fg_scores_mask > 0, target_scores, 0)
-
+        
+        print(f"[DEBUG get_targets] Final target scores:")
+        print(f"  shape: {target_scores.shape}")
+        print(f"  range: [{target_scores.min().item():.4f}, {target_scores.max().item():.4f}]")
+        print(f"  sum: {target_scores.sum().item()}")
+        
         return target_labels, target_bboxes, target_scores
 
 def bbox_iou(box1, box2, xywh=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7):
@@ -308,7 +318,20 @@ def bbox_iou(box1, box2, xywh=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7
 def bbox2dist(anchor_points, bbox, reg_max):
     """Transform bbox(xyxy) to dist(ltrb)."""
     x1y1, x2y2 = torch.split(bbox, 2, -1)
-    return torch.cat((anchor_points - x1y1, x2y2 - anchor_points), -1).clamp(0, reg_max - 0.01)  # dist (lt, rb)
+    result = torch.cat((anchor_points - x1y1, x2y2 - anchor_points), -1).clamp(0, reg_max - 0.01)  # dist (lt, rb)
+    
+    # DEBUG: 타겟 distance 분포 확인
+    if torch.rand(1).item() < 0.01:  # 1% 확률로 로그
+        print(f"[DEBUG bbox2dist] Target distance range: [{result.min():.3f}, {result.max():.3f}]")
+        print(f"[DEBUG bbox2dist] Mean: {result.mean():.3f}, Std: {result.std():.3f}")
+        print(f"[DEBUG bbox2dist] reg_max: {reg_max}")
+        
+        # 각 방향별 통계
+        lt, rb = torch.split(result, 2, -1)
+        print(f"[DEBUG bbox2dist] LT range: [{lt.min():.3f}, {lt.max():.3f}], mean: {lt.mean():.3f}")
+        print(f"[DEBUG bbox2dist] RB range: [{rb.min():.3f}, {rb.max():.3f}], mean: {rb.mean():.3f}")
+    
+    return result
 
 class BboxLoss(nn.Module):
     def __init__(self, reg_max=16, use_dfl=False):
@@ -329,6 +352,19 @@ class BboxLoss(nn.Module):
         # 计算DFL损失
         if self.use_dfl:
             target_ltrb = bbox2dist(anchor_points, target_bboxes, self.reg_max)
+            
+            # DEBUG: DFL loss 계산 과정 확인
+            if torch.rand(1).item() < 0.01:  # 1% 확률로 로그
+                print(f"[DEBUG BboxLoss] fg_mask sum: {fg_mask.sum()}")
+                print(f"[DEBUG BboxLoss] pred_dist shape: {pred_dist.shape}")
+                print(f"[DEBUG BboxLoss] target_ltrb shape: {target_ltrb.shape}")
+                print(f"[DEBUG BboxLoss] target_ltrb range: [{target_ltrb.min():.3f}, {target_ltrb.max():.3f}]")
+                
+                # 예측된 distance 분포 확인
+                pred_dist_selected = pred_dist[fg_mask]
+                print(f"[DEBUG BboxLoss] pred_dist selected shape: {pred_dist_selected.shape}")
+                print(f"[DEBUG BboxLoss] pred_dist selected range: [{pred_dist_selected.min():.3f}, {pred_dist_selected.max():.3f}]")
+            
             loss_dfl = self._df_loss(pred_dist[fg_mask].view(-1, self.reg_max + 1), target_ltrb[fg_mask]) * weight
             loss_dfl = loss_dfl.sum() / target_scores_sum
         else:
@@ -405,16 +441,26 @@ class Loss:
             out[..., 1:5] = xywh2xyxy(out[..., 1:5].mul_(scale_tensor))
         return out
 
-    def bbox_decode(self, anchor_points, pred_dist):
+    def bbox_decode(self, anchor_points, pred_dist, img_size=None):
         if self.use_dfl:
             # batch, anchors, channels
-            b, a, c     = pred_dist.shape
+            b, a, c = pred_dist.shape
+            print(f"[DEBUG] DFL input shape - batch: {b}, anchors: {a}, channels: {c}")
+            print(f"[DEBUG] DFL input range - min: {pred_dist.min().item():.4f}, max: {pred_dist.max().item():.4f}")
+            
             # DFL的解码
-            pred_dist   = pred_dist.view(b, a, 4, c // 4).softmax(3).matmul(self.proj.to(pred_dist.device).type(pred_dist.dtype))
-            # pred_dist = pred_dist.view(b, a, c // 4, 4).transpose(2,3).softmax(3).matmul(self.proj.type(pred_dist.dtype))
-            # pred_dist = (pred_dist.view(b, a, c // 4, 4).softmax(2) * self.proj.type(pred_dist.dtype).view(1, 1, -1, 1)).sum(2)
+            pred_dist = pred_dist.view(b, a, 4, c // 4)
+            print(f"[DEBUG] After reshape - shape: {pred_dist.shape}")
+            
+            pred_dist = pred_dist.softmax(3)
+            print(f"[DEBUG] After softmax - range - min: {pred_dist.min().item():.4f}, max: {pred_dist.max().item():.4f}")
+            
+            pred_dist = pred_dist.matmul(self.proj.to(pred_dist.device).type(pred_dist.dtype))
+            print(f"[DEBUG] After matmul - shape: {pred_dist.shape}")
+            print(f"[DEBUG] After matmul - range - min: {pred_dist.min().item():.4f}, max: {pred_dist.max().item():.4f}")
+            
         # 然后解码获得预测框
-        return dist2bbox(pred_dist, anchor_points, xywh=False)
+        return dist2bbox(pred_dist, anchor_points, xywh=False, img_size=img_size)
 
     def __call__(self, preds, batch):
         # 获得使用的device
@@ -429,6 +475,13 @@ class Loss:
         #                                               box bs, self.reg_max * 4, 8400
         pred_scores = pred_scores.permute(0, 2, 1).contiguous()
         pred_distri = pred_distri.permute(0, 2, 1).contiguous()
+
+        # 예측값과 타겟값의 분포 확인
+        print(f"[DEBUG] Class prediction statistics:")
+        print(f"  Raw predictions - range: [{pred_scores.min().item():.4f}, {pred_scores.max().item():.4f}]")
+        print(f"  Raw predictions - mean: {pred_scores.mean().item():.4f}, std: {pred_scores.std().item():.4f}")
+        print(f"  After sigmoid - range: [{torch.sigmoid(pred_scores).min().item():.4f}, {torch.sigmoid(pred_scores).max().item():.4f}]")
+        print(f"  After sigmoid - mean: {torch.sigmoid(pred_scores).mean().item():.4f}, std: {torch.sigmoid(pred_scores).std().item():.4f}")
 
         # 获得batch size与dtype
         dtype       = pred_scores.dtype
@@ -455,7 +508,7 @@ class Loss:
         # pboxes
         # 对预测结果进行解码，获得预测框
         # bs, 8400, 4
-        pred_bboxes             = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
+        pred_bboxes             = self.bbox_decode(anchor_points, pred_distri, img_size=imgsz)  # xyxy, (b, h*w, 4)
 
         # 对预测框与真实框进行分配
         # target_bboxes     bs, 8400, 4
@@ -469,9 +522,20 @@ class Loss:
         target_bboxes       /= stride_tensor
         target_scores_sum   = max(target_scores.sum(), 1)
 
+        # 타겟값 분포 확인
+        print(f"[DEBUG] Target scores statistics:")
+        print(f"  Range: [{target_scores.min().item():.4f}, {target_scores.max().item():.4f}]")
+        print(f"  Mean: {target_scores.mean().item():.4f}, std: {target_scores.std().item():.4f}")
+        print(f"  Sum: {target_scores.sum().item():.4f}")
+
         # 计算分类的损失
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
         loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
+
+        # Loss 값 확인
+        print(f"[DEBUG] BCE loss statistics:")
+        print(f"  Range: [{loss[1].item():.4f}]")
+        print(f"  Total loss: {loss.sum().item():.4f}")
 
         # 计算bbox的损失
         if fg_mask.sum():

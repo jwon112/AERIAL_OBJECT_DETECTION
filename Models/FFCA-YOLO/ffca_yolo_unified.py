@@ -20,9 +20,9 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(FFCA_YOLO_DIR))
 sys.path.append(PROJECT_ROOT)
 sys.path.append(FFCA_YOLO_DIR)
 
-from unified_model_interface import UnifiedDetectionModel
+from utility.unified_model_interface import UnifiedModelInterface
 
-class FFCAYOLOWrapper(UnifiedDetectionModel):
+class FFCAYOLOWrapper(UnifiedModelInterface):
     """FFCA-YOLO 자체 완결형 통합 인터페이스"""
     
     def __init__(self, config: Dict[str, Any]):

@@ -89,7 +89,7 @@ class LossHistory():
 
 class EvalCallback():
     def __init__(self, net, input_shape, class_names, num_classes, val_lines, log_dir, cuda, \
-            map_out_path=".temp_map_out", max_boxes=100, confidence=0.05, nms_iou=0.5, letterbox_image=True, MINOVERLAP=0.5, eval_flag=True, period=1):
+            map_out_path=".temp_map_out", max_boxes=100, confidence=0.05, nms_iou=0.5, letterbox_image=True, MINOVERLAP=0.5, eval_flag=True, period=10):
         super(EvalCallback, self).__init__()
         
         self.net                = net
@@ -143,14 +143,19 @@ class EvalCallback():
             #   将图像输入网络当中进行预测！
             #---------------------------------------------------------#
             outputs = self.net(images)
+            print(f"[DEBUG] Raw outputs type: {type(outputs)}, len: {len(outputs) if hasattr(outputs, '__len__') else 'N/A'}")
             outputs = self.bbox_util.decode_box(outputs)
+            print(f"[DEBUG] Decoded outputs shape: {outputs.shape}")
+            print(f"[DEBUG] Outputs max confidence: {outputs[..., 4:].max():.6f}")
             #---------------------------------------------------------#
             #   将预测框进行堆叠，然后进行非极大抑制
             #---------------------------------------------------------#
             results = self.bbox_util.non_max_suppression(outputs, self.num_classes, self.input_shape, 
                         image_shape, self.letterbox_image, conf_thres = self.confidence, nms_thres = self.nms_iou)
+            print(f"[DEBUG] After NMS: {len(results[0]) if results[0] is not None else 0} predictions")
                                                     
             if results[0] is None: 
+                print(f"[DEBUG] No predictions for image {image_id} (after NMS)")
                 return 
 
             top_label   = np.array(results[0][:, 5], dtype = 'int32')
@@ -162,6 +167,10 @@ class EvalCallback():
         top_conf    = top_conf[top_100]
         top_label   = top_label[top_100]
 
+        print(f"[DEBUG] Image {image_id}: Found {len(top_label)} predictions")
+        print(f"[DEBUG] Available class_names: {class_names}")
+        print(f"[DEBUG] Model class_names: {self.class_names}")
+        valid_predictions = 0
         for i, c in list(enumerate(top_label)):
             predicted_class = self.class_names[int(c)]
             box             = top_boxes[i]
@@ -169,16 +178,26 @@ class EvalCallback():
 
             top, left, bottom, right = box
             if predicted_class not in class_names:
+                print(f"[DEBUG] Skipping class '{predicted_class}' (not in class_names)")
                 continue
+            valid_predictions += 1
 
-            f.write("%s %s %s %s %s %s\n" % (predicted_class, score[:6], str(int(left)), str(int(top)), str(int(right)),str(int(bottom))))
+            line_to_write = "%s %s %s %s %s %s\n" % (predicted_class, str(int(left)), str(int(top)), str(int(right)), str(int(bottom)), score[:6])
+            f.write(line_to_write)
+            print(f"[DEBUG] Writing: {line_to_write.strip()}")
 
         f.close()
+        print(f"[DEBUG] Image {image_id}: Written {valid_predictions} valid predictions")
         return 
     
     def on_epoch_end(self, epoch, model_eval):
         if epoch % self.period == 0 and self.eval_flag:
             self.net = model_eval
+            # 디버그: 모델 상태 확인
+            self.net.eval()  # 반드시 평가 모드로
+            print(f"[DEBUG] Model mode: training={self.net.training}")
+            print(f"[DEBUG] Model device: {next(self.net.parameters()).device}")
+            print(f"[DEBUG] Model weights mean: {next(self.net.parameters()).data.mean():.6f}")
             if not os.path.exists(self.map_out_path):
                 os.makedirs(self.map_out_path)
             if not os.path.exists(os.path.join(self.map_out_path, "ground-truth")):
@@ -188,34 +207,95 @@ class EvalCallback():
             print("Get map.")
             for annotation_line in tqdm(self.val_lines):
                 line        = annotation_line.split()
-                image_id    = os.path.basename(line[0]).split('.')[0]
+                image_path  = line[0].strip()
+                image_id    = os.path.basename(image_path).split('.')[0]
                 #------------------------------#
                 #   读取图像并转换成RGB图像
                 #------------------------------#
-                image       = Image.open(line[0])
+                image       = Image.open(image_path)
+                
                 #------------------------------#
-                #   获得预测框
+                #   데이터 형식 자동 감지 및 처리
                 #------------------------------#
-                gt_boxes    = np.array([np.array(list(map(int,box.split(',')))) for box in line[1:]])
+                gt_boxes = []
+                
+                # VOC 형식 감지: annotation_line에 bbox 정보가 포함된 경우
+                if len(line) > 1:
+                    print(f"[DEBUG] Detected VOC format for {image_id}")
+                    # VOC 형식: image_path x1,y1,x2,y2,class_id x1,y1,x2,y2,class_id ...
+                    for box_info in line[1:]:
+                        try:
+                            coords = box_info.split(',')
+                            if len(coords) >= 5:
+                                x1, y1, x2, y2, class_id = map(int, coords[:5])
+                                gt_boxes.append([x1, y1, x2, y2, class_id])
+                        except ValueError:
+                            print(f"[DEBUG] Invalid VOC box format: {box_info}")
+                            continue
+                
+                # YOLO 형식: annotation_line에 image_path만 있는 경우
+                else:
+                    print(f"[DEBUG] Detected YOLO format for {image_id}")
+                    # YOLO 형식: 별도 labels 디렉토리에서 label 파일 찾기
+                    image_dir = os.path.dirname(image_path)
+                    dataset_root = os.path.dirname(image_dir)  # images의 상위 디렉토리
+                    label_path = os.path.join(dataset_root, "labels", image_id + ".txt")
+                    
+                    print(f"[DEBUG] Looking for YOLO label: {label_path}")
+                    
+                    if os.path.exists(label_path):
+                        img_width, img_height = image.size  # PIL Image는 (width, height)
+                        
+                        with open(label_path, 'r') as f:
+                            for line_content in f:
+                                parts = line_content.strip().split()
+                                if len(parts) >= 5:
+                                    class_id = int(parts[0])
+                                    # YOLO 형식: center_x, center_y, width, height (normalized)
+                                    center_x, center_y, width, height = map(float, parts[1:5])
+                                    
+                                    # Normalized -> Absolute coordinates
+                                    center_x *= img_width
+                                    center_y *= img_height
+                                    width *= img_width
+                                    height *= img_height
+                                    
+                                    # Center format -> Corner format (x1,y1,x2,y2)
+                                    x1 = int(center_x - width / 2)
+                                    y1 = int(center_y - height / 2)
+                                    x2 = int(center_x + width / 2)
+                                    y2 = int(center_y + height / 2)
+                                    
+                                    gt_boxes.append([x1, y1, x2, y2, class_id])
+                    else:
+                        print(f"[DEBUG] YOLO label file not found: {label_path}")
+                
+                gt_boxes = np.array(gt_boxes) if gt_boxes else np.array([]).reshape(0, 5)
+                print(f"[DEBUG] Found {len(gt_boxes)} ground truth boxes for {image_id}")
+                
                 #------------------------------#
                 #   获得预测txt
                 #------------------------------#
                 self.get_map_txt(image_id, image, self.class_names, self.map_out_path)
                 
                 #------------------------------#
-                #   获得真实框txt
+                #   获得真实框txt - 통합된 VOC 형식으로 저장
                 #------------------------------#
                 with open(os.path.join(self.map_out_path, "ground-truth/"+image_id+".txt"), "w") as new_f:
                     for box in gt_boxes:
-                        left, top, right, bottom, obj = box
-                        obj_name = self.class_names[obj]
-                        new_f.write("%s %s %s %s %s\n" % (obj_name, left, top, right, bottom))
-                        
+                        x1, y1, x2, y2, obj = box
+                        if 0 <= obj < len(self.class_names):  # 유효한 클래스 ID 확인
+                            obj_name = self.class_names[obj]
+                            new_f.write("%s %s %s %s %s\n" % (obj_name, x1, y1, x2, y2))
+                            print(f"[DEBUG] GT written for {image_id}: {obj_name} {x1} {y1} {x2} {y2}")
+                        else:
+                            print(f"[DEBUG] Invalid class_id {obj} for image {image_id} (max: {len(self.class_names)-1})")
+                
             print("Calculate Map.")
             try:
                 temp_map = get_coco_map(class_names = self.class_names, path = self.map_out_path)[1]
             except:
-                temp_map = get_map(self.MINOVERLAP, False, path = self.map_out_path)
+                temp_map = get_map(self.MINOVERLAP, False, score_threhold=0.1, path = self.map_out_path)
             self.maps.append(temp_map)
             self.epoches.append(epoch)
 

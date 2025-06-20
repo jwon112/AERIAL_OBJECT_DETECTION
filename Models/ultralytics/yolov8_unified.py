@@ -10,7 +10,7 @@ import yaml
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from unified_model_interface import UnifiedDetectionModel
+from utility.unified_model_interface import UnifiedModelInterface
 import torch
 import torch.nn as nn
 from typing import Dict, List, Any

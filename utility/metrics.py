@@ -485,3 +485,65 @@ def get_nms(version="v7"):
         return non_max_suppression_v7_multilabel
     else:
         raise ValueError(f"Unsupported NMS version: {version}")
+
+
+def calculate_batch_metrics(outputs, targets, metric_type='mAP'):
+    """
+    배치 단위 메트릭 계산
+    
+    Args:
+        outputs: 모델 출력
+        targets: 타겟
+        metric_type: 메트릭 타입 ('mAP', 'accuracy', 'loss')
+        
+    Returns:
+        계산된 메트릭 값
+    """
+    if metric_type == 'mAP':
+        # 간단한 IoU 기반 mAP 계산
+        if isinstance(outputs, torch.Tensor) and isinstance(targets, torch.Tensor):
+            # 예시: 간단한 IoU 계산
+            if outputs.dim() == 3 and targets.dim() == 3:  # [batch, num_boxes, 5]
+                batch_size = outputs.size(0)
+                total_iou = 0.0
+                valid_predictions = 0
+                
+                for i in range(batch_size):
+                    pred_boxes = outputs[i]  # [num_boxes, 5]
+                    gt_boxes = targets[i]    # [num_boxes, 5]
+                    
+                    # 유효한 예측만 처리
+                    if pred_boxes.size(0) > 0 and gt_boxes.size(0) > 0:
+                        # 간단한 IoU 계산 (실제로는 더 복잡한 로직 필요)
+                        iou = bbox_iou(pred_boxes[:, :4], gt_boxes[:, :4])
+                        total_iou += iou.mean().item()
+                        valid_predictions += 1
+                
+                if valid_predictions > 0:
+                    return total_iou / valid_predictions
+                else:
+                    return 0.0
+            else:
+                return 0.0
+        else:
+            return 0.0
+    
+    elif metric_type == 'accuracy':
+        # 간단한 정확도 계산
+        if isinstance(outputs, torch.Tensor) and isinstance(targets, torch.Tensor):
+            if outputs.dim() == targets.dim():
+                return (outputs == targets).float().mean().item()
+            else:
+                return 0.0
+        else:
+            return 0.0
+    
+    elif metric_type == 'loss':
+        # 손실 값 반환 (이미 계산된 경우)
+        if isinstance(outputs, torch.Tensor):
+            return outputs.item()
+        else:
+            return 0.0
+    
+    else:
+        return 0.0

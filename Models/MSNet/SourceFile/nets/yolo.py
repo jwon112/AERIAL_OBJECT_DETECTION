@@ -53,8 +53,15 @@ class DFL(nn.Module):
 		# bs, self.reg_max * 4, 8400
 		b, c, a = x.shape
 		# bs, 4, self.reg_max, 8400 => bs, self.reg_max, 4, 8400 => b, 4, 8400
-		# 以softmax的方式，对0~16的数字计算百分比，获得最终数字。
-		return self.conv(x.view(b, 4, self.c1, a).transpose(2, 1).softmax(1)).view(b, 4, a)
+		# 以softmax的방식, 대해0~16的수자계산백분비, 획득최종수자。
+		reshaped = x.view(b, 4, self.c1, a).transpose(2, 1)
+		softmaxed = reshaped.softmax(1)
+		result = self.conv(softmaxed).view(b, 4, a)
+		
+		# distance prediction이 음수가 되지 않도록 0 이상으로 제한
+		result = result.clamp(min=0.0, max=self.c1 - 0.01)
+		
+		return result
 
 # ---------------------------------------------------#
 #   yolo_body
@@ -62,6 +69,14 @@ class DFL(nn.Module):
 class YoloBody(nn.Module):
 	def __init__(self, input_shape, num_classes, phi, pretrained=False):
 		super(YoloBody, self).__init__()
+		
+		# 디버깅: 모델 생성 정보
+		print(f"[DEBUG Model] Model creation:")
+		print(f"  Input shape: {input_shape}")
+		print(f"  Num classes: {num_classes}")
+		print(f"  Phi: {phi}")
+		print(f"  Pretrained: {pretrained}")
+		
 		depth_dict = {'n': 0.33, 's': 0.33, 'm': 0.67, 'l': 1.00, 'x': 1.00, }
 		width_dict = {'n': 0.25, 's': 0.50, 'm': 0.75, 'l': 1.00, 'x': 1.25, }
 		deep_width_dict = {'n': 1.00, 's': 1.00, 'm': 0.75, 'l': 0.50, 'x': 0.50, }
@@ -99,11 +114,47 @@ class YoloBody(nn.Module):
 		self.no = num_classes + self.reg_max * 4  # number of outputs per anchor
 		self.num_classes = num_classes
 		
+		# 디버깅: 네트워크 구조 정보
+		print(f"[DEBUG Model] Network structure:")
+		print(f"  Base channels: {base_channels}")
+		print(f"  Channels: {ch}")
+		print(f"  Strides: {self.stride}")
+		print(f"  Reg max: {self.reg_max}")
+		print(f"  Num outputs per anchor: {self.no}")
+		print(f"  Num classes: {self.num_classes}")
+		
 		c2, c3 = max((16, ch[0] // 4, self.reg_max * 4)), max(ch[0], num_classes)  # channels
 		self.cv2 = nn.ModuleList(nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3), nn.Conv2d(c2, 4 * self.reg_max, 1)) for x in ch)
 		self.cv3 = nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, num_classes, 1)) for x in ch)
+		
+		# 디버깅: cv3 레이어 정보
+		print(f"[DEBUG Model] CV3 layers:")
+		for i, m in enumerate(self.cv3):
+			print(f"  cv3[{i}] input channels: {m[0].conv.in_channels}")
+			print(f"  cv3[{i}] output channels: {m[-1].out_channels}")
+			print(f"  cv3[{i}] expected output: {num_classes}")
+		
 		if not pretrained:
+			# 디버깅: 초기화 전 가중치 확인
+			print(f"[DEBUG Model] Before initialization:")
+			for i, m in enumerate(self.cv3):
+				final_conv = m[-1]  # 마지막 Conv2d 레이어
+				print(f"  cv3[{i}] final conv - weight range: [{final_conv.weight.data.min().item():.4f}, {final_conv.weight.data.max().item():.4f}]")
+				print(f"  cv3[{i}] final conv - weight mean: {final_conv.weight.data.mean().item():.4f}, std: {final_conv.weight.data.std().item():.4f}")
+				if final_conv.bias is not None:
+					print(f"  cv3[{i}] final conv - bias range: [{final_conv.bias.data.min().item():.4f}, {final_conv.bias.data.max().item():.4f}]")
+			
 			weights_init(self)
+			
+			# 디버깅: 초기화 후 가중치 확인
+			print(f"[DEBUG Model] After initialization:")
+			for i, m in enumerate(self.cv3):
+				final_conv = m[-1]  # 마지막 Conv2d 레이어
+				print(f"  cv3[{i}] final conv - weight range: [{final_conv.weight.data.min().item():.4f}, {final_conv.weight.data.max().item():.4f}]")
+				print(f"  cv3[{i}] final conv - weight mean: {final_conv.weight.data.mean().item():.4f}, std: {final_conv.weight.data.std().item():.4f}")
+				if final_conv.bias is not None:
+					print(f"  cv3[{i}] final conv - bias range: [{final_conv.bias.data.min().item():.4f}, {final_conv.bias.data.max().item():.4f}]")
+		
 		self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
 	
 	def fuse(self):
@@ -178,6 +229,19 @@ class YoloBody(nn.Module):
 		# P4 512, 40, 40 => num_classes + self.reg_max * 4, 40, 40
 		# P5 1024 * deep_mul, 20, 20 => num_classes + self.reg_max * 4, 20, 20
 		for i in range(self.nl):
+			# 클래스 예측 레이어의 출력 확인
+			cls_pred = self.cv3[i](x[i])
+			print(f"[DEBUG] Layer {i} class predictions:")
+			print(f"  Shape: {cls_pred.shape}")
+			print(f"  Raw range: [{cls_pred.min().item():.4f}, {cls_pred.max().item():.4f}]")
+			print(f"  After sigmoid: [{torch.sigmoid(cls_pred).min().item():.4f}, {torch.sigmoid(cls_pred).max().item():.4f}]")
+			
+			# 가중치 통계
+			for name, param in self.cv3[i].named_parameters():
+				if 'weight' in name:
+					print(f"  {name} - range: [{param.data.min().item():.4f}, {param.data.max().item():.4f}]")
+					print(f"  {name} - mean: {param.data.mean().item():.4f}, std: {param.data.std().item():.4f}")
+			
 			x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
 		
 		if self.shape != shape:
@@ -187,6 +251,12 @@ class YoloBody(nn.Module):
 		# num_classes + self.reg_max * 4 , 8400 =>  cls num_classes, 8400;
 		#                                           box self.reg_max * 4, 8400
 		box, cls = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2).split((self.reg_max * 4, self.num_classes), 1)
-		# origin_cls      = [xi.split((self.reg_max * 4, self.num_classes), 1)[1] for xi in x]
+		
+		# 최종 클래스 예측값 확인
+		print(f"[DEBUG] Final class predictions:")
+		print(f"  Shape: {cls.shape}")
+		print(f"  Raw range: [{cls.min().item():.4f}, {cls.max().item():.4f}]")
+		print(f"  After sigmoid: [{torch.sigmoid(cls).min().item():.4f}, {torch.sigmoid(cls).max().item():.4f}]")
+		
 		dbox = self.dfl(box)
 		return dbox, cls, x, self.anchors.to(dbox.device), self.strides.to(dbox.device)

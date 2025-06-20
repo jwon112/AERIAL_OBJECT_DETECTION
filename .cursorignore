@@ -25,7 +25,7 @@ Models/*/.pytest_cache/
 Models/*/ultralytics.egg-info/
 
 # Model weight files
-*.pt
+*.pt``
 *.pth
 *.ckpt
 *.weights
@@ -47,6 +47,7 @@ Models/*/ultralytics.egg-info/
 !dependencies*.txt
 !setup.txt
 !install*.txt
+!Datasets/**/*.txt
 
 # Configuration files (exclude important ones)
 *.toml
@@ -65,6 +66,7 @@ Models/*/ultralytics.egg-info/
 !environment*.yaml
 !conda*.yaml
 !docker*.yaml
+!Datasets/**/*.yaml
 
 # Keep important project files
 !mkdocs.yml

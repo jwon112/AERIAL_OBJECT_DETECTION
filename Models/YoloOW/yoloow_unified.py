@@ -13,14 +13,14 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(YOLOOW_DIR))
 sys.path.append(PROJECT_ROOT)
 sys.path.append(YOLOOW_DIR)
 
-from unified_model_interface import UnifiedDetectionModel
+from utility.unified_model_interface import UnifiedModelInterface
 import torch
 import torch.nn as nn
 from typing import Dict, List, Any
 from pathlib import Path
 import yaml
 
-class YoloOWWrapper(UnifiedDetectionModel):
+class YoloOWWrapper(UnifiedModelInterface):
     """YoloOW 통합 인터페이스 래퍼"""
     
     def __init__(self, config: Dict[str, Any]):

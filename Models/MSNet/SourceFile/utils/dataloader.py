@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data.dataset import Dataset
+import os
 
 from utils.utils import cvtColor, preprocess_input
 
@@ -52,8 +53,22 @@ class YoloDataset(Dataset):
         else:
             image, box      = self.get_random_data(self.annotation_lines[index], self.input_shape, random = self.train)
 
+
+        box = np.array(box, dtype=np.float32) # 이 라인을 get_random_data 호출 직후로 이동 또는 추가
+
+        # 디버깅: 데이터 로딩 확인
+        if index < 5:  # 처음 5개 샘플만 출력
+            print(f"[DEBUG Dataloader] Sample {index}:")
+            print(f"  Annotation line: {self.annotation_lines[index]}")
+            print(f"  Loaded boxes shape: {box.shape if hasattr(box, 'shape') else 'No boxes'}")
+            if len(box) > 0:
+                print(f"  Box content: {box}")
+                print(f"  Class IDs: {box[:, -1] if len(box) > 0 else []}")
+                print(f"  Box ranges: x1[{box[:, 0].min():.3f}, {box[:, 0].max():.3f}], y1[{box[:, 1].min():.3f}, {box[:, 1].max():.3f}]")
+            else:
+                print(f"  No boxes loaded!")
+
         image       = np.transpose(preprocess_input(np.array(image, dtype=np.float32)), (2, 0, 1))
-        box         = np.array(box, dtype=np.float32)
         
         #---------------------------------------------------#
         #   对真实框进行预处理
@@ -81,13 +96,30 @@ class YoloDataset(Dataset):
             labels_out[:, 1] = box[:, -1]
             labels_out[:, 2:] = box[:, :4]
             
+            # 디버깅: 전처리 후 데이터 확인
+            if index < 5:
+                print(f"  After preprocessing:")
+                print(f"    labels_out shape: {labels_out.shape}")
+                print(f"    Class IDs: {labels_out[:, 1]}")
+                print(f"    Box coordinates: {labels_out[:, 2:]}")
+                print(f"    Box ranges: x[{labels_out[:, 2].min():.3f}, {labels_out[:, 2].max():.3f}], y[{labels_out[:, 3].min():.3f}, {labels_out[:, 3].max():.3f}]")
+        
         return image, labels_out
 
     def rand(self, a=0, b=1):
         return np.random.rand()*(b-a) + a
 
     def get_random_data(self, annotation_line, input_shape, jitter=.3, hue=.1, sat=0.7, val=0.4, random=True):
-        line    = annotation_line.split()
+        annotation_line = annotation_line.strip()
+        if annotation_line.startswith('"') and '" ' in annotation_line:
+            # 경로가 따옴표로 감싸진 경우
+            end_quote_idx = annotation_line.find('" ', 1)
+            image_path = annotation_line[1:end_quote_idx]
+            bbox_part = annotation_line[end_quote_idx + 2:]
+            line = [image_path] + bbox_part.split() if bbox_part else [image_path]
+        else:
+            # 기존 방식: 공백으로 분할
+            line = annotation_line.split()
         #------------------------------#
         #   读取图像并转换成RGB图像
         #------------------------------#
@@ -101,7 +133,21 @@ class YoloDataset(Dataset):
         #------------------------------#
         #   获得预测框
         #------------------------------#
-        box     = np.array([np.array(list(map(int,box.split(',')))) for box in line[1:]])
+        # img2label_paths 로직 사용
+        sa, sb = f'{os.sep}images{os.sep}', f'{os.sep}labels{os.sep}'
+        label_path = sb.join(line[0].rsplit(sa, 1)).rsplit('.', 1)[0] + '.txt'
+        
+        box = []
+        if os.path.exists(label_path):
+            with open(label_path, 'r') as f:
+                lines = f.readlines()
+            for line in lines:
+                values = line.strip().split()
+                if len(values) == 5:
+                    class_id, cx, cy, label_w, label_h = map(float, values)
+                    # YOLO 형식 그대로 사용 (정규화된 값)
+                    box.append([cx, cy, label_w, label_h, int(class_id)])
+        box = np.array(box) if box else np.array([])
 
         if not random:
             scale = min(w/iw, h/ih)
@@ -122,6 +168,13 @@ class YoloDataset(Dataset):
             #   对真实框进行调整
             #---------------------------------#
             if len(box)>0:
+                # YOLO 형식(정규화)을 VOC 형식(픽셀 좌표)으로 변환
+                box[:, [0,2]] = box[:, [0,2]] * iw  # cx, label_w -> x1, x2
+                box[:, [1,3]] = box[:, [1,3]] * ih  # cy, label_h -> y1, y2
+                # 중심점과 크기를 좌상단, 우하단 좌표로 변환
+                box[:, [0,1]] = box[:, [0,1]] - box[:, [2,3]] / 2  # x1, y1
+                box[:, [2,3]] = box[:, [0,1]] + box[:, [2,3]]      # x2, y2
+                
                 np.random.shuffle(box)
                 box[:, [0,2]] = box[:, [0,2]]*nw/iw + dx
                 box[:, [1,3]] = box[:, [1,3]]*nh/ih + dy
@@ -188,6 +241,13 @@ class YoloDataset(Dataset):
         #   对真实框进行调整
         #---------------------------------#
         if len(box)>0:
+            # YOLO 형식(정규화)을 VOC 형식(픽셀 좌표)으로 변환
+            box[:, [0,2]] = box[:, [0,2]] * iw  # cx, label_w -> x1, x2
+            box[:, [1,3]] = box[:, [1,3]] * ih  # cy, label_h -> y1, y2
+            # 중심점과 크기를 좌상단, 우하단 좌표로 변환
+            box[:, [0,1]] = box[:, [0,1]] - box[:, [2,3]] / 2  # x1, y1
+            box[:, [2,3]] = box[:, [0,1]] + box[:, [2,3]]      # x2, y2
+            
             np.random.shuffle(box)
             box[:, [0,2]] = box[:, [0,2]]*nw/iw + dx
             box[:, [1,3]] = box[:, [1,3]]*nh/ih + dy
@@ -259,7 +319,16 @@ class YoloDataset(Dataset):
             #---------------------------------#
             #   每一行进行分割
             #---------------------------------#
-            line_content = line.split()
+            line = line.strip()
+            if line.startswith('"') and '" ' in line:
+                # 경로가 따옴표로 감싸진 경우
+                end_quote_idx = line.find('" ', 1)
+                image_path = line[1:end_quote_idx]
+                bbox_part = line[end_quote_idx + 2:]
+                line_content = [image_path] + bbox_part.split() if bbox_part else [image_path]
+            else:
+                # 기존 방식: 공백으로 분할
+                line_content = line.split()
             #---------------------------------#
             #   打开图片
             #---------------------------------#
@@ -273,7 +342,21 @@ class YoloDataset(Dataset):
             #---------------------------------#
             #   保存框的位置
             #---------------------------------#
-            box = np.array([np.array(list(map(int,box.split(',')))) for box in line_content[1:]])
+            # FFCA-YOLO의 img2label_paths 로직 사용
+            sa, sb = f'{os.sep}images{os.sep}', f'{os.sep}labels{os.sep}'
+            label_path = sb.join(line_content[0].rsplit(sa, 1)).rsplit('.', 1)[0] + '.txt'
+            
+            box = []
+            if os.path.exists(label_path):
+                with open(label_path, 'r') as f:
+                    lines = f.readlines()
+                for line in lines:
+                    values = line.strip().split()
+                    if len(values) == 5:
+                        class_id, cx, cy, label_w, label_h = map(float, values)
+                        # YOLO 형식 그대로 사용 (정규화된 값)
+                        box.append([cx, cy, label_w, label_h, int(class_id)])
+            box = np.array(box) if box else np.array([])
             
             #---------------------------------#
             #   是否翻转图片
@@ -322,6 +405,13 @@ class YoloDataset(Dataset):
             #   对box进行重新处理
             #---------------------------------#
             if len(box)>0:
+                # YOLO 형식(정규화)을 VOC 형식(픽셀 좌표)으로 변환
+                box[:, [0,2]] = box[:, [0,2]] * iw  # cx, label_w -> x1, x2
+                box[:, [1,3]] = box[:, [1,3]] * ih  # cy, label_h -> y1, y2
+                # 중심점과 크기를 좌상단, 우하단 좌표로 변환
+                box[:, [0,1]] = box[:, [0,1]] - box[:, [2,3]] / 2  # x1, y1
+                box[:, [2,3]] = box[:, [0,1]] + box[:, [2,3]]      # x2, y2
+                
                 np.random.shuffle(box)
                 box[:, [0,2]] = box[:, [0,2]]*nw/iw + dx
                 box[:, [1,3]] = box[:, [1,3]]*nh/ih + dy

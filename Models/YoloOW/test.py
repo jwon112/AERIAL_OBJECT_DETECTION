@@ -109,11 +109,36 @@ def test(data,
         with torch.no_grad():
             # Run model
             t = time_synchronized()
-            out, train_out = model(img, augment=augment)  # inference and training outputs
+            model_output = model(img, augment=augment)  # inference and training outputs
+            
+            # 디버깅: 모델 출력 타입 확인
+            print(f"[DEBUG] Model output type: {type(model_output)}")
+            if isinstance(model_output, tuple):
+                print(f"[DEBUG] Tuple length: {len(model_output)}")
+            else:
+                print(f"[DEBUG] Single output shape: {model_output.shape if hasattr(model_output, 'shape') else 'No shape'}")
+            
+            # 모델 출력 유연 처리 - 튜플이면 unpacking, 단일 출력이면 train_out=None
+            if isinstance(model_output, tuple):
+                if len(model_output) == 2:
+                    out, train_out = model_output
+                    print(f"[DEBUG] Using 2-element tuple unpacking")
+                elif len(model_output) == 3:
+                    out, train_out, _ = model_output  # 3번째 요소는 무시
+                    print(f"[DEBUG] Using 3-element tuple unpacking")
+                else:
+                    out = model_output[0]  # 첫 번째 요소만 사용
+                    train_out = model_output[1] if len(model_output) > 1 else None
+                    print(f"[DEBUG] Using flexible tuple unpacking for {len(model_output)} elements")
+            else:
+                out = model_output
+                train_out = None
+                print(f"[DEBUG] Using single output mode")
+                
             t0 += time_synchronized() - t
 
             # Compute loss
-            if compute_loss:
+            if compute_loss and train_out is not None:
                 loss += compute_loss([x.float() for x in train_out], targets)[1][:3]  # box, obj, cls
 
             # Run NMS

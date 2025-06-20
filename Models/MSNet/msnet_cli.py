@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 import yaml
 import tempfile
+import argparse
 
 # MSNet 폴더를 시스템 경로에 추가
 MSNET_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -63,140 +64,278 @@ def build_msnet_model_cli(cfg=None, ex_dict=None):
     }
 
 def create_msnet_data_config(ex_dict):
-    """MSNet용 데이터 설정 파일 생성"""
-    data_config_path = os.path.abspath(ex_dict['Data Config'])
+    """
+    MSNet 데이터 설정 파일 생성
     
-    with open(data_config_path, 'r') as f:
+    Args:
+        ex_dict (dict): 데이터 설정을 담은 딕셔너리
+    
+    Returns:
+        str: 생성된 임시 데이터 설정 파일 경로
+    """
+    # 프로젝트 루트 경로 계산 (MSNet/SourceFile의 상위 3단계)
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(MSNET_SOURCE_DIR)))
+    
+    # 데이터셋 디렉토리 설정
+    ex_dict['Dataset Dir'] = os.path.join(project_root, 'Datasets', ex_dict['Dataset Name'])
+    
+    # 데이터 설정 파일 읽기
+    data_config_path = os.path.abspath(ex_dict['Data Config'])
+    print(f"Reading data config from: {data_config_path}")
+    
+    with open(data_config_path, 'r', encoding='utf-8') as f:
         data_config = yaml.safe_load(f)
     
-    # MSNet은 VOC 형식 데이터셋을 사용하므로 변환 필요
-    if 'path' in data_config:
-        original_path = data_config['path']
-        if not os.path.isabs(original_path):
-            project_root = os.path.dirname(os.path.dirname(MSNET_DIR))
-            absolute_path = os.path.abspath(os.path.join(project_root, original_path))
-            data_config['path'] = absolute_path
+    # 데이터셋 디렉토리 경로 설정
+    dataset_dir = ex_dict['Dataset Dir']
     
-    # 클래스 수 및 클래스 이름 설정
-    data_config['nc'] = ex_dict['Number of Classes']
-    if 'Class Names' in ex_dict:
-        data_config['names'] = ex_dict['Class Names']
+    # train.txt와 val.txt 파일 경로 설정
+    train_file = os.path.join(dataset_dir, data_config['train'])
+    val_file = os.path.join(dataset_dir, data_config['val'])
     
-    # MSNet용 경로 설정
-    msnet_data_config = {
-        'train_annotation_path': data_config.get('train', ''),
-        'val_annotation_path': data_config.get('val', ''),
-        'classes_path': os.path.join(MSNET_SOURCE_DIR, 'model_data', 'classes.txt'),
-        'num_classes': ex_dict['Number of Classes']
-    }
+    print(f"Reading train file from: {train_file}")
+    print(f"Reading val file from: {val_file}")
     
-    # 클래스 파일 생성
-    os.makedirs(os.path.dirname(msnet_data_config['classes_path']), exist_ok=True)
-    if 'Class Names' in ex_dict:
-        with open(msnet_data_config['classes_path'], 'w') as f:
-            for class_name in ex_dict['Class Names']:
-                f.write(f"{class_name}\n")
+    # train.txt와 val.txt 파일 읽기
+    with open(train_file, 'r') as f:
+        train_lines = f.readlines()
+    with open(val_file, 'r') as f:
+        val_lines = f.readlines()
     
     # 임시 파일 생성
-    temp_data_file = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
-    yaml.dump(msnet_data_config, temp_data_file, default_flow_style=False)
-    temp_data_file.close()
+    temp_dir = tempfile.gettempdir()
+    temp_train_path = os.path.join(temp_dir, 'train.txt')
+    temp_val_path = os.path.join(temp_dir, 'val.txt')
     
-    return temp_data_file.name
+    # 절대 경로로 변환하여 임시 파일에 저장 (짧은 경로 사용으로 공백 문제 해결)
+    try:
+        import win32api
+        # 짧은 경로 사용
+        short_dataset_dir = win32api.GetShortPathName(dataset_dir)
+    except ImportError:
+        # win32api가 없으면 절대 경로 그대로 사용
+        short_dataset_dir = dataset_dir
+    
+    with open(temp_train_path, 'w') as f:
+        for line in train_lines:
+            # 상대 경로를 절대 경로로 변환
+            parts = line.strip().split()
+            if len(parts) > 0:
+                rel_path = parts[0]
+                # 상대 경로에서 데이터셋 경로 부분 제거 (중복 방지)
+                if rel_path.startswith(f"Datasets{os.sep}{ex_dict['Dataset Name']}{os.sep}"):
+                    rel_path = rel_path[len(f"Datasets{os.sep}{ex_dict['Dataset Name']}{os.sep}"):]
+                abs_path = os.path.join(short_dataset_dir, rel_path)
+                # 공백이 있으면 따옴표로 감싸기
+                if ' ' in abs_path:
+                    new_line = f'"{abs_path}"'
+                else:
+                    new_line = abs_path
+                # YOLO 형식에서는 이미지 경로만 포함 (라벨은 별도 labels 폴더에서 읽음)
+                f.write(f"{new_line}\n")
+    
+    with open(temp_val_path, 'w') as f:
+        for line in val_lines:
+            # 상대 경로를 절대 경로로 변환
+            parts = line.strip().split()
+            if len(parts) > 0:
+                rel_path = parts[0]
+                # 상대 경로에서 데이터셋 경로 부분 제거 (중복 방지)
+                if rel_path.startswith(f"Datasets{os.sep}{ex_dict['Dataset Name']}{os.sep}"):
+                    rel_path = rel_path[len(f"Datasets{os.sep}{ex_dict['Dataset Name']}{os.sep}"):]
+                abs_path = os.path.join(short_dataset_dir, rel_path)
+                # 공백이 있으면 따옴표로 감싸기
+                if ' ' in abs_path:
+                    new_line = f'"{abs_path}"'
+                else:
+                    new_line = abs_path
+                # YOLO 형식에서는 이미지 경로만 포함 (라벨은 별도 labels 폴더에서 읽음)
+                f.write(f"{new_line}\n")
+    
+    # 데이터 설정 업데이트
+    data_config['nc'] = len(data_config['names'])
+    data_config['path'] = dataset_dir
+    data_config['train'] = temp_train_path
+    data_config['val'] = temp_val_path
+    
+    # 임시 YAML 파일 생성
+    temp_data_path = os.path.join(temp_dir, f"tmp{next(tempfile._get_candidate_names())}.yaml")
+    with open(temp_data_path, 'w') as f:
+        yaml.dump(data_config, f)
+    
+    return temp_data_path
+
+def validate_ex_dict(ex_dict, required_keys):
+    """
+    ex_dict에 필수 키들이 있는지 검증하는 함수
+    
+    Args:
+        ex_dict (dict): 검증할 딕셔너리
+        required_keys (list): 필수 키 리스트
+    
+    Raises:
+        ValueError: 필수 키가 없을 경우
+    """
+    missing_keys = [key for key in required_keys if key not in ex_dict]
+    if missing_keys:
+        raise ValueError(f"Missing required keys in ex_dict: {', '.join(missing_keys)}")
+
+def initialize_ex_dict(ex_dict=None):
+    """
+    ex_dict를 초기화하고 기본값을 설정하는 공통 함수
+    
+    Args:
+        ex_dict (dict, optional): 초기화할 딕셔너리. None이면 새로 생성
+        
+    Returns:
+        dict: 초기화된 ex_dict
+    """
+    if ex_dict is None:
+        ex_dict = {}
+    
+    # 기본값 설정
+    ex_dict.setdefault('Num Workers', 4)
+    ex_dict.setdefault('Early Stop', 50)
+    ex_dict.setdefault('AutoAnchor', True)
+    ex_dict.setdefault('Experiment Time', datetime.now().strftime("%y%m%d_%H%M%S"))
+    ex_dict.setdefault('Train Time', datetime.now().strftime("%y%m%d_%H%M%S"))
+    ex_dict.setdefault('Model Name', 'MSNet')
+    ex_dict.setdefault('Dataset Name', 'Unknown')
+    ex_dict.setdefault('Iteration', '1')
+    ex_dict.setdefault('Output Dir', 'output')
+    ex_dict.setdefault('Image Size', 640)
+    ex_dict.setdefault('Device', 'cpu')
+    ex_dict.setdefault('Batch Size', 16)
+    ex_dict.setdefault('Epochs', 100)
+    ex_dict.setdefault('LR', 0.001)
+    ex_dict.setdefault('Optimizer', 'Adam')
+    ex_dict.setdefault('Momentum', 0.937)
+    ex_dict.setdefault('Weight Decay', 0.0005)
+    
+    # 데이터 설정 파일이 없으면 기본값 설정
+    if 'Data Config' not in ex_dict:
+        iteration = ex_dict.get('Iteration', '1')
+        data_config = {
+            'path': os.path.join('Datasets', 'NWPU_VHR10_YOLO'),
+            'train': f'train_iter_{iteration}.txt',
+            'val': f'val_iter_{iteration}.txt',
+            'test': f'test_iter_{iteration}.txt',
+            'nc': 10,
+            'names': [
+                'airplane', 'ship', 'storage tank', 'baseball diamond',
+                'tennis court', 'basketball court', 'ground track field',
+                'harbor', 'bridge', 'vehicle'
+            ]
+        }
+        temp_config_path = os.path.join('Datasets', 'NWPU_VHR10_YOLO', f'data_iter_{iteration}.yaml')
+        os.makedirs(os.path.dirname(temp_config_path), exist_ok=True)
+        with open(temp_config_path, 'w', encoding='utf-8') as f:
+            yaml.dump(data_config, f, allow_unicode=True)
+        ex_dict['Data Config'] = temp_config_path
+        ex_dict['Number of Classes'] = data_config['nc']
+        ex_dict['Class Names'] = data_config['names']
+    
+    # 모델이 없으면 기본 모델 생성
+    if 'Model' not in ex_dict:
+        model_info = {
+            'cfg': os.path.join(MSNET_SOURCE_DIR, 'model_data', 'msnet_l.yaml'),
+            'weights': None
+        }
+        ex_dict['Model'] = model_info
+    
+    return ex_dict
+
+def train_fn(ex_dict):
+    """
+    MSNet 모델 학습 함수
+    
+    Args:
+        ex_dict (dict): 학습에 필요한 설정을 담은 딕셔너리
+    """
+    ex_dict = initialize_ex_dict(ex_dict)
+    return train_msnet_model_cli(ex_dict)
+
+def eval_fn(ex_dict):
+    """
+    MSNet 모델 평가 함수
+    
+    Args:
+        ex_dict (dict): 평가에 필요한 설정을 담은 딕셔너리
+    """
+    ex_dict = initialize_ex_dict(ex_dict)
+    return eval_msnet_model_cli(ex_dict)
+
+def test_fn(ex_dict):
+    """
+    MSNet 모델 테스트 함수
+    
+    Args:
+        ex_dict (dict): 테스트에 필요한 설정을 담은 딕셔너리
+    """
+    ex_dict = initialize_ex_dict(ex_dict)
+    return test_msnet_model_cli(ex_dict)
 
 def train_msnet_model_cli(ex_dict):
     """
     MSNet 모델을 CLI로 학습
     
-    MSNet은 자체 train.py 스크립트 사용
+    Args:
+        ex_dict (dict): 학습에 필요한 설정을 담은 딕셔너리
     """
+    # 학습 시작 시간 설정
     ex_dict['Train Time'] = datetime.now().strftime("%y%m%d_%H%M%S")
-    model_info = ex_dict['Model']
-    cfg = model_info['cfg']
+    
+    # 데이터 설정 파일 생성
+    temp_data_path = create_msnet_data_config(ex_dict)
+    temp_dir = os.path.dirname(temp_data_path)
     
     # 출력 디렉토리 설정
     name = f"{ex_dict['Train Time']}_{ex_dict['Model Name']}_{ex_dict['Dataset Name']}_Iter_{ex_dict['Iteration']}"
     output_path = os.path.join(ex_dict['Output Dir'], name)
     os.makedirs(output_path, exist_ok=True)
     
-    # MSNet 학습 스크립트
+    # 학습 스크립트
     train_script = os.path.join(MSNET_SOURCE_DIR, 'train.py')
     
-    # 데이터 설정
-    temp_data_path = create_msnet_data_config(ex_dict)
+    # 경로 설정
+    train_annotation_path = os.path.join(temp_dir, 'train.txt')
+    val_annotation_path = os.path.join(temp_dir, 'val.txt')
+    classes_path = os.path.join(MSNET_SOURCE_DIR, 'model_data', 'classes.txt')
     
-    # MSNet 학습 매개변수 설정
+    # input_shape는 문자열 리스트 형태로 전달 (train.py에서 eval() 사용)
+    input_shape_str = f"[{ex_dict['Image Size']}, {ex_dict['Image Size']}]"
+    
     cmd = [
         sys.executable,
         train_script,
-        f"--cuda={'True' if ex_dict.get('Device', 'cpu') != 'cpu' else 'False'}",
-        f"--seed=3407",
-        f"--distributed=False",
-        f"--sync_bn=False",
-        f"--fp16=False",
-        f"--classes_path={os.path.join(MSNET_SOURCE_DIR, 'model_data', 'classes.txt')}",
-        f"--model_path=",  # 빈 문자열로 설정 (from scratch)
-        f"--input_shape=[{ex_dict['Image Size']}, {ex_dict['Image Size']}]",
-        f"--phi=l",  # large model
-        f"--pretrained=False",
-        f"--mosaic=True",
-        f"--mosaic_prob=0.5",
-        f"--mixup=True",
-        f"--mixup_prob=0.5",
-        f"--special_aug_ratio=0.7",
-        f"--label_smoothing=0",
-        f"--Init_Epoch=0",
-        f"--Freeze_Epoch=50",
-        f"--Freeze_batch_size={ex_dict['Batch Size']}",
-        f"--UnFreeze_Epoch={ex_dict['Epochs']}",
-        f"--Unfreeze_batch_size={ex_dict['Batch Size']}",
-        f"--Freeze_Train=False",
-        f"--Init_lr={ex_dict['LR']}",
-        f"--Min_lr={ex_dict['LR'] * 0.01}",
-        f"--optimizer_type={ex_dict['Optimizer'].lower() if ex_dict['Optimizer'].lower() in ['adam', 'sgd'] else 'adam'}",
-        f"--momentum={ex_dict['Momentum']}",
-        f"--weight_decay={ex_dict['Weight Decay']}",
-        f"--lr_decay_type=cos",
-        f"--save_period=10",
+        f"--train_annotation_path={train_annotation_path}",
+        f"--val_annotation_path={val_annotation_path}",
+        f"--classes_path={classes_path}",
+        f"--input_shape={input_shape_str}",
         f"--save_dir={output_path}",
-        f"--eval_flag=True",
-        f"--eval_period=10",
-        f"--num_workers={ex_dict.get('Num Workers', 0)}",
+        f"--cuda={'True' if ex_dict['Device'] != 'cpu' else 'False'}",
+        f"--UnFreeze_Epoch={ex_dict.get('Epochs', 1)}",
+        f"--Unfreeze_batch_size={ex_dict.get('Batch Size', 16)}",
+        f"--Init_lr={ex_dict.get('LR', 0.001)}",
+        f"--Min_lr={ex_dict.get('LR', 0.001) * 0.001}",  # LR의 0.001배로 설정
+        f"--momentum={ex_dict.get('Momentum', 0.937)}",  # Momentum 추가
+        f"--weight_decay={ex_dict.get('Weight Decay', 0)}",  # Weight Decay 추가
+        f"--optimizer_type={ex_dict.get('Optimizer', 'adam').lower()}",  # Optimizer 추가
+        f"--Freeze_Train=False",  # 동결 훈련 비활성화
+        f"--num_workers={ex_dict.get('Num Workers', 0)}"
     ]
-    
-    # 데이터 경로 설정
-    data_config_path = os.path.abspath(ex_dict['Data Config'])
-    with open(data_config_path, 'r') as f:
-        data_config = yaml.safe_load(f)
-    
-    # train/val annotation 경로 추가 - 데이터셋 폴더 기준으로 절대 경로 생성
-    dataset_dir = os.path.dirname(data_config_path)  # YAML 파일이 있는 데이터셋 폴더
-    
-    if 'train' in data_config:
-        train_path = data_config['train']
-        if not os.path.isabs(train_path):
-            train_path = os.path.join(dataset_dir, train_path)
-        train_path = os.path.abspath(train_path)
-        cmd.append(f"--train_annotation_path={train_path}")
-        
-    if 'val' in data_config:
-        val_path = data_config['val']
-        if not os.path.isabs(val_path):
-            val_path = os.path.join(dataset_dir, val_path)
-        val_path = os.path.abspath(val_path)
-        cmd.append(f"--val_annotation_path={val_path}")
     
     print(f"MSNet 학습 명령어: {' '.join(cmd)}")
     
     # 환경 변수 설정
     env = os.environ.copy()
-    env['PYTHONUNBUFFERED'] = '1'
     env['PYTHONPATH'] = MSNET_SOURCE_DIR
-    
-    # 프로젝트 루트 디렉토리 (데이터셋이 있는 곳)
-    project_root = os.path.dirname(os.path.dirname(MSNET_DIR))
+    env['PYTHONUNBUFFERED'] = '1'
     
     try:
+        # 프로젝트 루트에서 실행
+        project_root = os.path.dirname(os.path.dirname(MSNET_SOURCE_DIR))
+        
         process = subprocess.Popen(cmd, cwd=project_root, stdout=subprocess.PIPE, 
                                  stderr=subprocess.STDOUT, text=True, 
                                  bufsize=0, universal_newlines=True, env=env)
@@ -218,31 +357,90 @@ def train_msnet_model_cli(ex_dict):
         print(f"MSNet 학습 중 오류: {e}")
         return_code = 1
     
+    # 가중치 파일 경로 설정
+    ex_dict['PT path'] = os.path.join(output_path, 'best_epoch_weights.pth')
+    
+    # 임시 데이터 파일 삭제
+    if os.path.exists(temp_data_path):
+        os.unlink(temp_data_path)
+    if os.path.exists(train_annotation_path):
+        os.unlink(train_annotation_path)
+    if os.path.exists(val_annotation_path):
+        os.unlink(val_annotation_path)
+    
+    return ex_dict
+
+def eval_msnet_model_cli(ex_dict):
+    """
+    MSNet 모델을 CLI로 평가
+    
+    Args:
+        ex_dict (dict): 평가에 필요한 설정을 담은 딕셔너리
+    """
+    # 데이터 설정 파일 생성
+    temp_data_path = create_msnet_data_config(ex_dict)
+    
+    # 출력 디렉토리 설정
+    name = f"{ex_dict['Train Time']}_{ex_dict['Model Name']}_{ex_dict['Dataset Name']}_Iter_{ex_dict['Iteration']}"
+    output_path = os.path.join(ex_dict['Output Dir'], name)
+    os.makedirs(output_path, exist_ok=True)
+    
+    # 평가 스크립트
+    eval_script = os.path.join(MSNET_SOURCE_DIR, 'utils_coco', 'get_map_coco.py')
+    
+    # 경로 설정 (따옴표 제거)
+    model_path = ex_dict["PT path"]
+    data_yaml = temp_data_path
+    map_out_path = output_path
+    
+    # input_shape는 개별 정수로 전달 (get_map_coco.py에서 nargs='+' 사용)
+    cmd = [
+        sys.executable,
+        eval_script,
+        f"--model_path={model_path}",
+        f"--data_yaml={data_yaml}",
+        f"--map_out_path={map_out_path}",
+        "--input_shape", str(ex_dict['Image Size']), str(ex_dict['Image Size']),
+        f"--confidence=0.2",  # 신뢰도 임계값을 0.2로 설정
+        f"--cuda={'True' if ex_dict['Device'] != 'cpu' else 'False'}"
+    ]
+    
+    print(f"MSNet 평가 명령어: {' '.join(cmd)}")
+    
+    # 환경 변수 설정
+    env = os.environ.copy()
+    env['PYTHONPATH'] = MSNET_SOURCE_DIR
+    env['PYTHONUNBUFFERED'] = '1'
+    
+    try:
+        # 프로젝트 루트에서 실행
+        project_root = os.path.dirname(os.path.dirname(MSNET_SOURCE_DIR))
+        
+        process = subprocess.Popen(cmd, cwd=project_root, stdout=subprocess.PIPE, 
+                                 stderr=subprocess.STDOUT, text=True, 
+                                 bufsize=0, universal_newlines=True, env=env)
+        
+        # 실시간 출력
+        stdout_lines = []
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                print(f"[MSNet] {output.strip()}")
+                stdout_lines.append(output.strip())
+        
+        return_code = process.poll()
+        print(f"MSNet 평가 완료. 반환 코드: {return_code}")
+        
+    except Exception as e:
+        print(f"MSNet 평가 중 오류: {e}")
+        return_code = 1
+    
     # 결과 파싱
     results_path = os.path.join(output_path, 'results.txt')
-    log_path = os.path.join(output_path, 'train.log')
-    
-    metrics = {}
-    for path in [results_path, log_path]:
-        if os.path.exists(path):
-            metrics.update(parse_msnet_results(path))
-    
-    # 가중치 파일 경로
-    pt_path = os.path.join(output_path, 'best_epoch_weights.pth')
-    if not os.path.exists(pt_path):
-        # 다른 가능한 가중치 파일 경로
-        possible_paths = [
-            os.path.join(output_path, 'last_epoch_weights.pth'),
-            os.path.join(output_path, 'model_final.pth'),
-            os.path.join(output_path, 'checkpoint.pth')
-        ]
-        for path in possible_paths:
-            if os.path.exists(path):
-                pt_path = path
-                break
-    
-    ex_dict['PT path'] = pt_path
-    ex_dict['Train Results'] = metrics if metrics else {'total_loss': 0.1}
+    metrics = parse_msnet_results(results_path)
+    ex_dict['Eval Results'] = metrics if metrics else {'mAP': 0.0}
     
     # 임시 데이터 파일 삭제
     if os.path.exists(temp_data_path):
@@ -250,226 +448,112 @@ def train_msnet_model_cli(ex_dict):
     
     return ex_dict
 
-def eval_msnet_model_cli(ex_dict):
-    """MSNet 모델 검증"""
-    pt_path = ex_dict.get('PT path')
-    if not pt_path or not os.path.exists(pt_path):
-        print(f"Warning: MSNet model weights not found at {pt_path}")
-        ex_dict["Val Results"] = {
-            "mAP": 0.0,
-            "precision": 0.0,
-            "recall": 0.0,
-            "total_loss": 0.0
-        }
-        return ex_dict
+def test_msnet_model_cli(ex_dict):
+    """
+    MSNet 모델을 CLI로 테스트
     
-    # MSNet evaluation은 training 과정에서 자동으로 수행됨
-    # 별도의 eval 스크립트가 없으므로 get_map.py 사용
-    eval_script = os.path.join(MSNET_SOURCE_DIR, 'get_map.py')
+    Args:
+        ex_dict (dict): 테스트에 필요한 설정을 담은 딕셔너리
+    """
+    # 데이터 설정 파일 생성
+    temp_data_path = create_msnet_data_config(ex_dict)
     
-    if not os.path.exists(eval_script):
-        print(f"Warning: MSNet eval script not found at {eval_script}")
-        ex_dict["Val Results"] = {
-            "mAP": 0.0,
-            "precision": 0.0,
-            "recall": 0.0,
-            "total_loss": 0.0
-        }
-        return ex_dict
+    # 출력 디렉토리 설정
+    name = f"{ex_dict['Train Time']}_{ex_dict['Model Name']}_{ex_dict['Dataset Name']}_Iter_{ex_dict['Iteration']}"
+    output_path = os.path.join(ex_dict['Output Dir'], name)
+    os.makedirs(output_path, exist_ok=True)
     
-    # 평가 실행
+    # 테스트 스크립트
+    test_script = os.path.join(MSNET_SOURCE_DIR, 'utils_coco', 'get_map_coco.py')
+    
+    # 경로 설정 (따옴표 제거)
+    model_path = ex_dict["PT path"]
+    data_yaml = temp_data_path
+    map_out_path = output_path
+    
+    # input_shape는 개별 정수로 전달 (get_map_coco.py에서 nargs='+' 사용)
     cmd = [
         sys.executable,
-        eval_script,
-        f"--classes_path={os.path.join(MSNET_SOURCE_DIR, 'model_data', 'classes.txt')}",
-        f"--model_path={pt_path}",
-        f"--input_shape=[{ex_dict['Image Size']}, {ex_dict['Image Size']}]",
-        f"--phi=l"
+        test_script,
+        f"--model_path={model_path}",
+        f"--data_yaml={data_yaml}",
+        f"--map_out_path={map_out_path}",
+        "--input_shape", str(ex_dict['Image Size']), str(ex_dict['Image Size']),
+        f"--confidence=0.2",  # 신뢰도 임계값을 0.2로 설정
+        f"--cuda={'True' if ex_dict['Device'] != 'cpu' else 'False'}"
     ]
     
-    # 데이터 경로 설정
-    data_config_path = os.path.abspath(ex_dict['Data Config'])
-    with open(data_config_path, 'r') as f:
-        data_config = yaml.safe_load(f)
+    print(f"MSNet 테스트 명령어: {' '.join(cmd)}")
     
-    # 데이터셋 폴더 기준으로 절대 경로 생성
-    dataset_dir = os.path.dirname(data_config_path)
-    
-    if 'val' in data_config:
-        val_path = data_config['val']
-        if not os.path.isabs(val_path):
-            val_path = os.path.join(dataset_dir, val_path)
-        val_path = os.path.abspath(val_path)
-        cmd.append(f"--val_annotation_path={val_path}")
-    
-    print(f"MSNet 평가 명령어: {' '.join(cmd)}")
+    # 환경 변수 설정
+    env = os.environ.copy()
+    env['PYTHONPATH'] = MSNET_SOURCE_DIR
+    env['PYTHONUNBUFFERED'] = '1'
     
     try:
-        env = os.environ.copy()
-        env['PYTHONPATH'] = MSNET_SOURCE_DIR
+        # 프로젝트 루트에서 실행
+        project_root = os.path.dirname(os.path.dirname(MSNET_SOURCE_DIR))
         
-        # 프로젝트 루트 디렉토리 (데이터셋이 있는 곳)
-        project_root = os.path.dirname(os.path.dirname(MSNET_DIR))
+        process = subprocess.Popen(cmd, cwd=project_root, stdout=subprocess.PIPE, 
+                                 stderr=subprocess.STDOUT, text=True, 
+                                 bufsize=0, universal_newlines=True, env=env)
         
-        process = subprocess.run(cmd, cwd=project_root, capture_output=True, 
-                               text=True, timeout=1800, env=env)  # 30분 타임아웃
+        # 실시간 출력
+        stdout_lines = []
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                print(f"[MSNet] {output.strip()}")
+                stdout_lines.append(output.strip())
         
-        # 결과 파싱
-        metrics = {}
-        if process.stdout:
-            import re
-            # MSNet mAP 추출
-            map_match = re.search(r'mAP:\s*([\d.]+)', process.stdout)
-            if map_match:
-                metrics['mAP'] = float(map_match.group(1))
-        
-        ex_dict["Val Results"] = metrics if metrics else {
-            "mAP": 0.0,
-            "precision": 0.0,
-            "recall": 0.0,
-            "total_loss": 0.0
-        }
+        return_code = process.poll()
+        print(f"MSNet 테스트 완료. 반환 코드: {return_code}")
         
     except Exception as e:
-        print(f"MSNet 평가 중 오류: {e}")
-        ex_dict["Val Results"] = {
-            "mAP": 0.0,
-            "precision": 0.0,
-            "recall": 0.0,
-            "total_loss": 0.0
-        }
+        print(f"MSNet 테스트 중 오류: {e}")
+        return_code = 1
+    
+    # 결과 파싱
+    results_path = os.path.join(output_path, 'results.txt')
+    metrics = parse_msnet_results(results_path)
+    ex_dict['Test Results'] = metrics if metrics else {'mAP': 0.0}
+    
+    # 임시 데이터 파일 삭제
+    if os.path.exists(temp_data_path):
+        os.unlink(temp_data_path)
     
     return ex_dict
 
-def test_msnet_model_cli(ex_dict):
-    """MSNet 모델 테스트"""
-    pt_path = ex_dict.get('PT path')
-    if not pt_path or not os.path.exists(pt_path):
-        print(f"[MSNet] Error: Model weights not found at {pt_path}")
-        print(f"[MSNet] Cannot perform testing without trained model weights")
-        ex_dict["Test Results"] = type('MSNetResults', (), {
-            'mAP': 0.0,
-            'precision': 0.0,
-            'recall': 0.0,
-            'AP50': 0.0,
-            'AP75': 0.0
-        })()
-        return ex_dict
+def main():
+    parser = argparse.ArgumentParser(description='MSNet CLI for model evaluation')
+    parser.add_argument('--config', type=str, required=True, help='Path to experiment config file')
+    parser.add_argument('--model_path', type=str, required=True, help='Path to model weights')
+    parser.add_argument('--data_yaml', type=str, required=True, help='Path to data.yaml file')
+    parser.add_argument('--map_out_path', type=str, default='map_out', help='Path to save evaluation results')
+    args = parser.parse_args()
 
-    print(f"[MSNet] Testing with model weights: {pt_path} ({os.path.getsize(pt_path) / (1024*1024):.1f} MB)")
+    # config 파일 읽기
+    with open(args.config, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
 
-    # 데이터 경로 설정 및 확인
-    data_config_path = os.path.abspath(ex_dict['Data Config'])
-    if not os.path.exists(data_config_path):
-        print(f"[MSNet] Error: Data config not found at {data_config_path}")
-        ex_dict["Test Results"] = type('MSNetResults', (), {
-            'mAP': 0.0, 'precision': 0.0, 'recall': 0.0, 'AP50': 0.0, 'AP75': 0.0
-        })()
-        return ex_dict
-        
-    with open(data_config_path, 'r') as f:
-        data_config = yaml.safe_load(f)
-    
-    # 데이터셋 폴더 기준으로 절대 경로 생성
-    dataset_dir = os.path.dirname(data_config_path)
-    
-    # test 경로가 있으면 사용, 없으면 val 경로 사용
-    test_data_path = data_config.get('test', data_config.get('val', ''))
-    if test_data_path:
-        if not os.path.isabs(test_data_path):
-            test_data_path = os.path.join(dataset_dir, test_data_path)
-        test_data_path = os.path.abspath(test_data_path)
-        
-        if not os.path.exists(test_data_path):
-            print(f"[MSNet] Error: Test data not found at {test_data_path}")
-            ex_dict["Test Results"] = type('MSNetResults', (), {
-                'mAP': 0.0, 'precision': 0.0, 'recall': 0.0, 'AP50': 0.0, 'AP75': 0.0
-            })()
-            return ex_dict
-            
-        print(f"[MSNet] Test data confirmed at: {test_data_path}")
-        if data_config.get('test') is None:
-            print(f"[MSNet] Note: Using validation data for testing (no separate test set)")
-    else:
-        print(f"[MSNet] Error: No test data specified in config")
-        ex_dict["Test Results"] = type('MSNetResults', (), {
-            'mAP': 0.0, 'precision': 0.0, 'recall': 0.0, 'AP50': 0.0, 'AP75': 0.0
-        })()
-        return ex_dict
+    # get_map_coco.py 실행
+    cmd = [
+        sys.executable,
+        os.path.join(os.path.dirname(__file__), 'SourceFile', 'utils_coco', 'get_map_coco.py'),
+        '--model_path', args.model_path,
+        '--data_yaml', args.data_yaml,
+        '--map_out_path', args.map_out_path,
+        '--confidence', str(config.get('confidence', 0.5)),
+        '--nms_iou', str(config.get('nms_iou', 0.3)),
+        '--input_shape', str(config.get('input_shape', [640, 640])),
+        '--phi', config.get('phi', 'l'),
+        '--cuda', str(config.get('cuda', True))
+    ]
 
-    # MSNet 테스트 평가 시도
-    print(f"[MSNet] Attempting MSNet test evaluation with TEST dataset...")
-    
-    try:
-        # 간단한 테스트 - 모델 로딩 가능성 확인
-        temp_test_dir = tempfile.mkdtemp()
-        simple_test_script = os.path.join(temp_test_dir, 'simple_test.py')
-        
-        test_code = f'''
-import sys
-import os
-sys.path.insert(0, r"{MSNET_SOURCE_DIR}")
+    print(f"Running command: {' '.join(cmd)}")
+    subprocess.run(cmd)
 
-try:
-    print("Attempting to load MSNet for testing...")
-    from yolo import YOLO
-    
-    print("Loading model from: {pt_path}")
-    model = YOLO(model_path=r"{pt_path}", 
-                classes_path=r"{os.path.join(MSNET_SOURCE_DIR, 'model_data', 'classes.txt')}")
-    
-    print("Model loaded successfully for testing")
-    print("TEST_SUCCESS: Model loadable for testing")
-    
-    # 실제 평가를 위해서는 적절한 데이터셋 형식 변환이 필요
-    print("Note: Full evaluation requires MSNet-compatible dataset format")
-    print("Test data path: {test_data_path}")
-    
-except Exception as e:
-    print(f"TEST_ERROR: {{e}}")
-    import traceback
-    traceback.print_exc()
-'''
-        
-        with open(simple_test_script, 'w') as f:
-            f.write(test_code)
-        
-        env = os.environ.copy()
-        env['PYTHONPATH'] = MSNET_SOURCE_DIR
-        
-        result = subprocess.run([sys.executable, simple_test_script], 
-                              capture_output=True, text=True, timeout=60, env=env)
-        
-        print(f"[MSNet] Test evaluation output:")
-        print(result.stdout)
-        if result.stderr:
-            print(f"[MSNet] Test evaluation errors:")
-            print(result.stderr)
-        
-        # 결과 분석
-        if "TEST_SUCCESS" in result.stdout:
-            print(f"[MSNet] Model can be loaded for testing, but full evaluation needs proper setup")
-        
-        # 임시 파일 정리
-        import shutil
-        shutil.rmtree(temp_test_dir)
-        
-    except subprocess.TimeoutExpired:
-        print(f"[MSNet] Test evaluation timed out")
-    except Exception as e:
-        print(f"[MSNet] Test evaluation failed: {e}")
-    
-    # 테스트 실패 - 이는 정당한 실패
-    print(f"[MSNet] Test evaluation failed - this indicates issues with MSNet evaluation setup")
-    print(f"[MSNet] The model weights exist and training completed, but TEST evaluation cannot proceed")
-    print(f"[MSNet] This is a legitimate 0 result - TEST and VAL are completely different evaluations")
-    
-    ex_dict["Test Results"] = type('MSNetResults', (), {
-        'mAP': 0.0,
-        'precision': 0.0,
-        'recall': 0.0,
-        'AP50': 0.0,
-        'AP75': 0.0
-    })()
-    
-    return ex_dict 
+if __name__ == "__main__":
+    main() 

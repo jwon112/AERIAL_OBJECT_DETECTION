@@ -35,12 +35,51 @@ def make_anchors(feats, strides, grid_cell_offset=0.5):
 	return torch.cat(anchor_points), torch.cat(stride_tensor)
 
 
-def dist2bbox(distance, anchor_points, xywh=True, dim=-1):
+def dist2bbox(distance, anchor_points, xywh=True, dim=-1, img_size=None):
 	"""Transform distance(ltrb) to box(xywh or xyxy)."""
-	# 左上右下
+	# 좌상우하
 	lt, rb = torch.split(distance, 2, dim)
+	
+	# DEBUG: distance 예측값 상세 확인
+	print(f"[DEBUG dist2bbox] Input distance shape: {distance.shape}")
+	print(f"[DEBUG dist2bbox] lt range: [{lt.min():.3f}, {lt.max():.3f}]")
+	print(f"[DEBUG dist2bbox] rb range: [{rb.min():.3f}, {rb.max():.3f}]")
+	print(f"[DEBUG dist2bbox] anchor_points range: [{anchor_points.min():.3f}, {anchor_points.max():.3f}]")
+	
 	x1y1 = anchor_points - lt
 	x2y2 = anchor_points + rb
+	
+	print(f"[DEBUG dist2bbox] x1y1 range: [{x1y1.min():.3f}, {x1y1.max():.3f}]")
+	print(f"[DEBUG dist2bbox] x2y2 range: [{x2y2.min():.3f}, {x2y2.max():.3f}]")
+	
+	# DEBUG: 음수 좌표 발생 확인
+	if (x1y1 < 0).any() or (x2y2 < 0).any():
+		neg_count_x1y1 = (x1y1 < 0).sum()
+		neg_count_x2y2 = (x2y2 < 0).sum()
+		print(f"[DEBUG dist2bbox] NEGATIVE DETECTED! x1y1: {neg_count_x1y1}, x2y2: {neg_count_x2y2}")
+		
+		# 가장 작은 값들 샘플링
+		print(f"[DEBUG dist2bbox] Min x1y1: {x1y1.min():.3f}, Min x2y2: {x2y2.min():.3f}")
+		print(f"[DEBUG dist2bbox] Sample lt values: {lt.flatten()[:5]}")
+		print(f"[DEBUG dist2bbox] Sample anchor values: {anchor_points.flatten()[:5]}")
+	
+	# 좌표 클리핑 추가
+	if img_size is not None:
+		# img_size가 텐서인지 스칼라인지 확인
+		if isinstance(img_size, torch.Tensor):
+			# 텐서인 경우 max 값 사용
+			max_size = img_size.max().item()
+			x1y1 = torch.clamp(x1y1, min=0, max=max_size)
+			x2y2 = torch.clamp(x2y2, min=0, max=max_size)
+		else:
+			# 스칼라인 경우
+			x1y1 = torch.clamp(x1y1, min=0, max=img_size)
+			x2y2 = torch.clamp(x2y2, min=0, max=img_size)
+	else:
+		# 기본적으로 0 이상으로 클리핑
+		x1y1 = torch.clamp(x1y1, min=0)
+		x2y2 = torch.clamp(x2y2, min=0)
+	
 	if xywh:
 		c_xy = (x1y1 + x2y2) / 2
 		wh = x2y2 - x1y1
@@ -59,11 +98,30 @@ class DecodeBox():
 		# dbox  batch_size, 4, 8400
 		# cls   batch_size, 20, 8400
 		dbox, cls, origin_cls, anchors, strides = inputs
+		
+		# 디버깅: 입력값 확인
+		print(f"[DEBUG] Input shapes - dbox: {dbox.shape}, cls: {cls.shape}, anchors: {anchors.shape}")
+		print(f"[DEBUG] dbox range - min: {dbox.min().item():.4f}, max: {dbox.max().item():.4f}")
+		
 		# 获得中心宽高坐标
-		dbox = dist2bbox(dbox, anchors.unsqueeze(0), xywh=True, dim=1) * strides
+		dbox = dist2bbox(dbox, anchors.unsqueeze(0), xywh=True, dim=1, img_size=max(self.input_shape)) * strides
+		
+		# 디버깅: dist2bbox 후 확인
+		print(f"[DEBUG] After dist2bbox - shape: {dbox.shape}")
+		print(f"[DEBUG] dbox range - min: {dbox.min().item():.4f}, max: {dbox.max().item():.4f}")
+		
 		y = torch.cat((dbox, cls.sigmoid()), 1).permute(0, 2, 1)
+		
+		# 디버깅: cat 후 확인
+		print(f"[DEBUG] After cat - shape: {y.shape}")
+		print(f"[DEBUG] box coordinates range - min: {y[:, :, :4].min().item():.4f}, max: {y[:, :, :4].max().item():.4f}")
+		
 		# 进行归一化，到0~1之间
 		y[:, :, :4] = y[:, :, :4] / torch.Tensor([self.input_shape[1], self.input_shape[0], self.input_shape[1], self.input_shape[0]]).to(y.device)
+		
+		# 디버깅: 정규화 후 확인
+		print(f"[DEBUG] After normalization - box coordinates range - min: {y[:, :, :4].min().item():.4f}, max: {y[:, :, :4].max().item():.4f}")
+		
 		return y
 	
 	def yolo_correct_boxes(self, box_xy, box_wh, input_shape, image_shape, letterbox_image):
@@ -93,7 +151,7 @@ class DecodeBox():
 		boxes *= np.concatenate([image_shape, image_shape], axis=-1)
 		return boxes
 	
-	def non_max_suppression(self, prediction, num_classes, input_shape, image_shape, letterbox_image, conf_thres=0.5, nms_thres=0.4):
+	def non_max_suppression(self, prediction, num_classes, input_shape, image_shape, letterbox_image, conf_thres=0.2, nms_thres=0.4):
 		# ----------------------------------------------------------#
 		#   将预测结果的格式转换成左上角右下角的格式。
 		#   prediction  [batch_size, num_anchors, 85]
@@ -105,6 +163,10 @@ class DecodeBox():
 		box_corner[:, :, 3] = prediction[:, :, 1] + prediction[:, :, 3] / 2
 		prediction[:, :, :4] = box_corner[:, :, :4]
 		
+		# DEBUG: 예측 결과 확인
+		print(f"[DEBUG NMS] Input prediction shape: {prediction.shape}")
+		print(f"[DEBUG NMS] Box coordinates range - min: {prediction[:, :, :4].min().item():.3f}, max: {prediction[:, :, :4].max().item():.3f}")
+		
 		output = [None for _ in range(len(prediction))]
 		for i, image_pred in enumerate(prediction):
 			# ----------------------------------------------------------#
@@ -114,10 +176,16 @@ class DecodeBox():
 			# ----------------------------------------------------------#
 			class_conf, class_pred = torch.max(image_pred[:, 4:4 + num_classes], 1, keepdim=True)
 			
+			# DEBUG: 클래스 예측 확인
+			print(f"[DEBUG NMS] Class confidence range - min: {class_conf.min().item():.3f}, max: {class_conf.max().item():.3f}")
+			
 			# ----------------------------------------------------------#
 			#   利用置信度进行第一轮筛选
 			# ----------------------------------------------------------#
 			conf_mask = (class_conf[:, 0] >= conf_thres).squeeze()
+			
+			# DEBUG: confidence threshold 필터링 결과
+			print(f"[DEBUG NMS] Before confidence filter: {image_pred.size(0)} boxes")
 			
 			# ----------------------------------------------------------#
 			#   根据置信度进行预测结果的筛选
@@ -125,8 +193,14 @@ class DecodeBox():
 			image_pred = image_pred[conf_mask]
 			class_conf = class_conf[conf_mask]
 			class_pred = class_pred[conf_mask]
+			
+			# DEBUG: confidence threshold 필터링 후 결과
+			print(f"[DEBUG NMS] After confidence filter: {image_pred.size(0)} boxes")
+			
 			if not image_pred.size(0):
+				print("[DEBUG NMS] No boxes left after confidence filter")
 				continue
+				
 			# -------------------------------------------------------------------------#
 			#   detections  [num_anchors, 6]
 			#   6的内容为：x1, y1, x2, y2, class_conf, class_pred
@@ -142,11 +216,18 @@ class DecodeBox():
 				unique_labels = unique_labels.cuda()
 				detections = detections.cuda()
 			
+			# DEBUG: 클래스별 박스 수
+			print(f"[DEBUG NMS] Number of unique classes: {len(unique_labels)}")
+			
 			for c in unique_labels:
 				# ------------------------------------------#
 				#   获得某一类得分筛选后全部的预测结果
 				# ------------------------------------------#
 				detections_class = detections[detections[:, -1] == c]
+				
+				# DEBUG: 클래스별 박스 수
+				print(f"[DEBUG NMS] Class {c}: {detections_class.size(0)} boxes before NMS")
+				
 				# ------------------------------------------#
 				#   使用官方自带的非极大抑制会速度更快一些！
 				#   筛选出一定区域内，属于同一种类得分最大的框
@@ -158,20 +239,8 @@ class DecodeBox():
 				)
 				max_detections = detections_class[keep]
 				
-				# # 按照存在物体的置信度排序
-				# _, conf_sort_index = torch.sort(detections_class[:, 4]*detections_class[:, 5], descending=True)
-				# detections_class = detections_class[conf_sort_index]
-				# # 进行非极大抑制
-				# max_detections = []
-				# while detections_class.size(0):
-				#     # 取出这一类置信度最高的，一步一步往下判断，判断重合程度是否大于nms_thres，如果是则去除掉
-				#     max_detections.append(detections_class[0].unsqueeze(0))
-				#     if len(detections_class) == 1:
-				#         break
-				#     ious = bbox_iou(max_detections[-1], detections_class[1:])
-				#     detections_class = detections_class[1:][ious < nms_thres]
-				# # 堆叠
-				# max_detections = torch.cat(max_detections).data
+				# DEBUG: NMS 후 남은 박스 수
+				print(f"[DEBUG NMS] Class {c}: {max_detections.size(0)} boxes after NMS")
 				
 				# Add max detections to outputs
 				output[i] = max_detections if output[i] is None else torch.cat((output[i], max_detections))
@@ -180,6 +249,12 @@ class DecodeBox():
 				output[i] = output[i].cpu().numpy()
 				box_xy, box_wh = (output[i][:, 0:2] + output[i][:, 2:4]) / 2, output[i][:, 2:4] - output[i][:, 0:2]
 				output[i][:, :4] = self.yolo_correct_boxes(box_xy, box_wh, input_shape, image_shape, letterbox_image)
+				
+				# DEBUG: 최종 결과
+				print(f"[DEBUG NMS] Final output: {output[i].shape[0]} boxes")
+			else:
+				print("[DEBUG NMS] No boxes in final output")
+				
 		return output
 
 

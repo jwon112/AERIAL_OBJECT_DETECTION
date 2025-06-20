@@ -144,6 +144,18 @@ if __name__ == "__main__":
     #                   训练前一定要修改classes_path，使其对应自己的数据集
     #---------------------------------------------------------------------#
     classes_path    = args.classes_path
+    
+    # 디버깅: 클래스 정보 확인
+    print(f"[DEBUG Train] Classes path: {classes_path}")
+    class_names, num_classes = get_classes(classes_path)
+    print(f"[DEBUG Train] Loaded classes:")
+    print(f"  Number of classes: {num_classes}")
+    print(f"  Class names: {class_names}")
+    print(f"  Class indices: {list(range(len(class_names)))}")
+    
+    # 클래스 ID와 이름 매핑 확인
+    class_mapping = {i: name for i, name in enumerate(class_names)}
+    print(f"[DEBUG Train] Class mapping: {class_mapping}")
     #----------------------------------------------------------------------------------------------------------------------------#
     #   权值文件的下载请看README，可以通过网盘下载。模型的 预训练权重 对不同数据集是通用的，因为特征是通用的。
     #   模型的 预训练权重 比较重要的部分是 主干特征提取网络的权值部分，用于进行特征提取。
@@ -565,7 +577,7 @@ if __name__ == "__main__":
         #----------------------#
         if local_rank == 0:
             eval_callback   = EvalCallback(model, input_shape, class_names, num_classes, val_lines, log_dir, Cuda, \
-                                            eval_flag=eval_flag, period=eval_period)
+                                            eval_flag=eval_flag, period=eval_period, confidence=0.00001, nms_iou=0.9, max_boxes=1000, MINOVERLAP=0.1)
         else:
             eval_callback   = None
         

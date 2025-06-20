@@ -18,22 +18,15 @@ from utils.utils_bbox import DecodeBox
 class YOLO(object):
     _defaults = {
         #--------------------------------------------------------------------------#
-        #   使用自己训练好的模型进行预测一定要修改model_path和classes_path！
-        #   model_path指向logs文件夹下的权值文件，classes_path指向model_data下的txt
+        #   使用自己训练好的模型进行预测一定要修改model_path和data_yaml！
+        #   model_path指向logs文件夹下的权值文件，data_yaml指向数据集配置文件
         #
         #   训练好后logs文件夹下存在多个权值文件，选择验证集损失较低的即可。
         #   验证集损失较低不代表mAP较高，仅代表该权值在验证集上泛化性能较好。
-        #   如果出现shape不匹配，同时要注意训练时的model_path和classes_path参数的修改
+        #   如果出现shape不匹配，同时要注意训练时的model_path和data_yaml参数的修改
         #--------------------------------------------------------------------------#
         "model_path": 'logs/nwpu/best_epoch_weights.pth',
-        # "model_path": 'logs/rsod/best_epoch_weights.pth',
-        # "model_path": 'logs/hrrsd/best_epoch_weights.pth',
-        # "model_path": 'logs/dior/best_epoch_weights.pth',
-        
-        "classes_path"      : 'model_data/nwpu_voc_classes.txt',
-        # "classes_path"      : 'model_data/dior_voc_classes.txt',
-        # "classes_path"      : '../../Datasets/HRRSD/hrrsd_voc_classes.txt',
-        # "classes_path"      :'../../Datasets/RSOD/rsod_voc_classes.txt',
+        "data_yaml": 'model_data/data.yaml',
         
         #---------------------------------------------------------------------#
         #   输入图片的大小，必须为32的倍数。
@@ -47,7 +40,6 @@ class YOLO(object):
         #   l : 对应yolov8_l
         #   x : 对应yolov8_x
         #------------------------------------------------------#
-        # "phi"               : 's',
         "phi"               : 'l',
         #---------------------------------------------------------------------#
         #   只有得分大于置信度的预测框会被保留下来
@@ -88,8 +80,17 @@ class YOLO(object):
         #---------------------------------------------------#
         #   获得种类和先验框的数量
         #---------------------------------------------------#
-        self.class_names, self.num_classes  = get_classes(self.classes_path)
-        self.bbox_util                      = DecodeBox(self.num_classes, (self.input_shape[0], self.input_shape[1]))
+        if self.data_yaml is None:
+            raise ValueError("data_yaml must be specified")
+            
+        # data.yaml에서 클래스 정보 읽기
+        import yaml
+        with open(self.data_yaml, 'r', encoding='utf-8') as f:
+            data_config = yaml.safe_load(f)
+        self.class_names = data_config.get('names', [])
+        self.num_classes = len(self.class_names)
+            
+        self.bbox_util = DecodeBox(self.num_classes, (self.input_shape[0], self.input_shape[1]))
 
         #---------------------------------------------------#
         #   画框设置不同的颜色
@@ -373,6 +374,9 @@ class YOLO(object):
     #     print('Onnx model save as {}'.format(model_path))
 
     def get_map_txt(self, image_id, image, class_names, map_out_path):
+        # detection-results 디렉토리 생성
+        os.makedirs(os.path.join(map_out_path, "detection-results"), exist_ok=True)
+        
         f = open(os.path.join(map_out_path, "detection-results/"+image_id+".txt"), "w", encoding='utf-8')
         image_shape = np.array(np.shape(image)[0:2])
         #---------------------------------------------------------#
@@ -406,12 +410,15 @@ class YOLO(object):
                         image_shape, self.letterbox_image, conf_thres = self.confidence, nms_thres = self.nms_iou)
                                                     
             if results[0] is None: 
+                print(f"[DEBUG] YOLO No predictions for image {image_id}")
+                f.close()
                 return 
 
             top_label   = np.array(results[0][:, 5], dtype = 'int32')
             top_conf    = results[0][:, 4]
             top_boxes   = results[0][:, :4]
 
+        print(f"[DEBUG] YOLO Image {image_id}: Found {len(top_label)} predictions")
         for i, c in list(enumerate(top_label)):
             predicted_class = self.class_names[int(c)]
             box             = top_boxes[i]
@@ -421,7 +428,9 @@ class YOLO(object):
             if predicted_class not in class_names:
                 continue
 
-            f.write("%s %s %s %s %s %s\n" % (predicted_class, score[:6], str(int(left)), str(int(top)), str(int(right)),str(int(bottom))))
+            line_to_write = "%s %.6f %d %d %d %d\n" % (predicted_class, float(score), int(left), int(top), int(right), int(bottom))
+            f.write(line_to_write)
+            print(f"[DEBUG] YOLO Writing: {line_to_write.strip()}")
 
         f.close()
-        return 
+        return
