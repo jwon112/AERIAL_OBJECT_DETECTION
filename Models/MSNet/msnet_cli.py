@@ -342,6 +342,9 @@ def train_msnet_model_cli(ex_dict):
     # input_shape는 문자열 리스트 형태로 전달 (train.py에서 eval() 사용)
     input_shape_str = f"[{ex_dict['Image Size']}, {ex_dict['Image Size']}]"
     
+    # 절대 경로로 save_dir 설정 (수정된 부분)
+    save_dir_abs = os.path.abspath(output_path)
+    
     cmd = [
         sys.executable,
         train_script,
@@ -349,7 +352,7 @@ def train_msnet_model_cli(ex_dict):
         f"--val_annotation_path={val_annotation_path}",
         f"--classes_path={classes_path}",
         f"--input_shape={input_shape_str}",
-        f"--save_dir={output_path}",
+        f"--save_dir={save_dir_abs}",
         f"--cuda={'True' if ex_dict['Device'] != 'cpu' else 'False'}",
         f"--UnFreeze_Epoch={ex_dict.get('Epochs', 1)}",
         f"--Unfreeze_batch_size={ex_dict.get('Batch Size', 16)}",
@@ -427,6 +430,42 @@ def eval_msnet_model_cli(ex_dict):
     
     # 경로 설정 (따옴표 제거)
     model_path = ex_dict["PT path"]
+    
+    # 체크포인트 파일 존재 확인 및 대체 파일 찾기 (수정된 부분)
+    if not os.path.exists(model_path):
+        print(f"체크포인트 파일을 찾을 수 없습니다: {model_path}")
+        # 대체 파일들 확인
+        output_path = os.path.join(ex_dict['Output Dir'], f"{ex_dict['Train Time']}_{ex_dict['Model Name']}_{ex_dict['Dataset Name']}_Iter_{ex_dict['Iteration']}")
+        alternative_files = [
+            os.path.join(output_path, 'last_epoch_weights.pth'),
+            os.path.join(output_path, 'ep100-loss*.pth'),  # 마지막 epoch 파일
+        ]
+        
+        found_model = False
+        for alt_file in alternative_files:
+            if '*' in alt_file:
+                # 와일드카드 패턴 매칭
+                import glob
+                matching_files = glob.glob(alt_file)
+                if matching_files:
+                    # 가장 최근 파일 선택
+                    model_path = max(matching_files, key=os.path.getctime)
+                    found_model = True
+                    print(f"대체 체크포인트 파일을 찾았습니다: {model_path}")
+                    break
+            elif os.path.exists(alt_file):
+                model_path = alt_file
+                found_model = True
+                print(f"대체 체크포인트 파일을 찾았습니다: {model_path}")
+                break
+        
+        if not found_model:
+            print(f"사용 가능한 체크포인트 파일이 없습니다. 평가를 건너뜁니다.")
+            ex_dict['Eval Results'] = {'mAP': 0.0}
+            return ex_dict
+    
+    # 모델 경로를 절대 경로로 변환 (수정된 부분)
+    model_path_abs = os.path.abspath(model_path)
     data_yaml = temp_data_path
     # 절대 경로로 변환 (수정된 부분)
     map_out_path = os.path.abspath(output_path)
@@ -435,7 +474,7 @@ def eval_msnet_model_cli(ex_dict):
     cmd = [
         sys.executable,
         eval_script,
-        f"--model_path={model_path}",
+        f"--model_path={model_path_abs}",
         f"--data_yaml={data_yaml}",
         f"--map_out_path={map_out_path}",
         "--input_shape", str(ex_dict['Image Size']), str(ex_dict['Image Size']),
@@ -516,6 +555,42 @@ def test_msnet_model_cli(ex_dict):
     
     # 경로 설정 (따옴표 제거)
     model_path = ex_dict["PT path"]
+    
+    # 체크포인트 파일 존재 확인 및 대체 파일 찾기 (수정된 부분)
+    if not os.path.exists(model_path):
+        print(f"체크포인트 파일을 찾을 수 없습니다: {model_path}")
+        # 대체 파일들 확인
+        output_path = os.path.join(ex_dict['Output Dir'], f"{ex_dict['Train Time']}_{ex_dict['Model Name']}_{ex_dict['Dataset Name']}_Iter_{ex_dict['Iteration']}")
+        alternative_files = [
+            os.path.join(output_path, 'last_epoch_weights.pth'),
+            os.path.join(output_path, 'ep100-loss*.pth'),  # 마지막 epoch 파일
+        ]
+        
+        found_model = False
+        for alt_file in alternative_files:
+            if '*' in alt_file:
+                # 와일드카드 패턴 매칭
+                import glob
+                matching_files = glob.glob(alt_file)
+                if matching_files:
+                    # 가장 최근 파일 선택
+                    model_path = max(matching_files, key=os.path.getctime)
+                    found_model = True
+                    print(f"대체 체크포인트 파일을 찾았습니다: {model_path}")
+                    break
+            elif os.path.exists(alt_file):
+                model_path = alt_file
+                found_model = True
+                print(f"대체 체크포인트 파일을 찾았습니다: {model_path}")
+                break
+        
+        if not found_model:
+            print(f"사용 가능한 체크포인트 파일이 없습니다. 테스트를 건너뜁니다.")
+            ex_dict['Test Results'] = {'mAP': 0.0}
+            return ex_dict
+    
+    # 모델 경로를 절대 경로로 변환 (수정된 부분)
+    model_path_abs = os.path.abspath(model_path)
     data_yaml = temp_data_path
     # 절대 경로로 변환 (수정된 부분)
     map_out_path = os.path.abspath(output_path)
@@ -524,7 +599,7 @@ def test_msnet_model_cli(ex_dict):
     cmd = [
         sys.executable,
         test_script,
-        f"--model_path={model_path}",
+        f"--model_path={model_path_abs}",
         f"--data_yaml={data_yaml}",
         f"--map_out_path={map_out_path}",
         "--input_shape", str(ex_dict['Image Size']), str(ex_dict['Image Size']),
