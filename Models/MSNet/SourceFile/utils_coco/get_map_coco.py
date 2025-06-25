@@ -431,7 +431,7 @@ def get_coco_map(class_names, path, data_yaml):
                 h = max(1, min(h, img_height - y))
                 
                 # confidence가 너무 낮으면 제외
-                if confidence < 0.01:
+                if confidence < 0.3:
                     continue
                 
                 coco_dt.append({
@@ -505,7 +505,7 @@ def main():
     parser.add_argument('--model_path', type=str, required=True, help='path to model weights')
     parser.add_argument('--data_yaml', type=str, required=True, help='path to data.yaml file')
     parser.add_argument('--map_out_path', type=str, default='map_out', help='path to save evaluation results')
-    parser.add_argument('--confidence', type=float, default=0.2, help='confidence threshold')
+    parser.add_argument('--confidence', type=float, default=0.3, help='confidence threshold')
     parser.add_argument('--nms_iou', type=float, default=0.3, help='nms iou threshold')
     parser.add_argument('--input_shape', type=int, nargs='+', default=[640, 640], help='input shape')
     parser.add_argument('--phi', type=str, default='l', help='model size')
@@ -518,7 +518,7 @@ def main():
         data_config = yaml.safe_load(f)
     class_names = data_config.get('names', [])
 
-    # map_out_path 디렉토리 생성
+    # map_out_path 디렉토리 생성 (절대 경로 변환 제거)
     if not os.path.exists(opt.map_out_path):
         os.makedirs(opt.map_out_path)
 

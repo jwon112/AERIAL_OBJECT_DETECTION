@@ -577,7 +577,7 @@ if __name__ == "__main__":
         #----------------------#
         if local_rank == 0:
             eval_callback   = EvalCallback(model, input_shape, class_names, num_classes, val_lines, log_dir, Cuda, \
-                                            eval_flag=eval_flag, period=eval_period, confidence=0.00001, nms_iou=0.9, max_boxes=1000, MINOVERLAP=0.1)
+                                            map_out_path=save_dir, eval_flag=eval_flag, period=eval_period, confidence=0.00001, nms_iou=0.9, max_boxes=1000, MINOVERLAP=0.1)
         else:
             eval_callback   = None
         

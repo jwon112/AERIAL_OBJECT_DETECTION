@@ -118,6 +118,33 @@ def evaluate_model(ex_dict):
     return ex_dict """
     
 def format_measures(results, main_decimals=4, class_decimals=3, speed_decimals=1):
+    # MSNet 평가 결과 딕셔너리인 경우 처리
+    if isinstance(results, dict):
+        eval_dict = {}
+        
+        # MSNet 결과 매핑
+        if 'mAP' in results:
+            eval_dict['mAP@0.5:0.95'] = round(results['mAP'], main_decimals)
+        if 'AP50' in results:
+            eval_dict['mAP@0.5'] = round(results['AP50'], main_decimals)
+        if 'AP75' in results:
+            eval_dict['mAP@0.75'] = round(results['AP75'], main_decimals)
+        if 'APs' in results:
+            eval_dict['mAP@small'] = round(results['APs'], main_decimals)
+        if 'APm' in results:
+            eval_dict['mAP@medium'] = round(results['APm'], main_decimals)
+        if 'APl' in results:
+            eval_dict['mAP@large'] = round(results['APl'], main_decimals)
+        
+        # 기본값 설정 (없는 경우)
+        eval_dict.setdefault('mAP@0.5', 0.0)
+        eval_dict.setdefault('mAP@0.5:0.95', 0.0)
+        eval_dict.setdefault('Mean Precision', 0.0)
+        eval_dict.setdefault('Mean Recall', 0.0)
+        eval_dict.setdefault('mAP@0.75', 0.0)
+        
+        return eval_dict
+    
     # 결과가 딕셔너리인 경우 (YOLOoW_CLI) 또는 DetMetrics 객체인 경우 (YOLOv8) 모두 처리
     try:
         eval_dict = {

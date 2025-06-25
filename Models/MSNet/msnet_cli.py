@@ -15,35 +15,72 @@ def parse_msnet_results(results_path):
     """MSNet 결과 파일 파싱"""
     metrics = {}
     if not os.path.exists(results_path):
+        print(f"결과 파일이 존재하지 않습니다: {results_path}")
         return metrics
     
     try:
         with open(results_path, 'r') as f:
             lines = f.readlines()
             
-        # MSNet 결과 파싱 - 마지막 epoch 결과
-        for line in reversed(lines):
-            if 'Epoch' in line and 'mAP' in line:
-                # MSNet 출력 형식 파싱
-                import re
-                # Epoch xxx/xxx: loss=x.xxx, mAP=x.xxx 형식 파싱
-                loss_match = re.search(r'loss=([\d.]+)', line)
-                map_match = re.search(r'mAP=([\d.]+)', line)
-                
-                if loss_match:
-                    metrics['total_loss'] = float(loss_match.group(1))
-                if map_match:
-                    metrics['mAP'] = float(map_match.group(1))
-                break
+        print(f"결과 파일 읽기: {results_path}")
+        print(f"파일 내용: {lines}")
         
-        # key:value 형식도 시도
+        # get_map_coco.py에서 생성하는 results.txt 형식 파싱
         for line in lines:
-            if ':' in line and ('loss' in line.lower() or 'map' in line.lower()):
+            line = line.strip()
+            if ':' in line:
                 try:
-                    key, value = line.strip().split(':', 1)
-                    metrics[key.strip()] = float(value.strip())
-                except ValueError:
-                    pass
+                    key, value = line.split(':', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    # MSNet 결과 매핑
+                    if key == 'mAP':
+                        metrics['mAP'] = float(value)
+                    elif key == 'AP50':
+                        metrics['AP50'] = float(value)
+                    elif key == 'AP75':
+                        metrics['AP75'] = float(value)
+                    elif key == 'APs':
+                        metrics['APs'] = float(value)
+                    elif key == 'APm':
+                        metrics['APm'] = float(value)
+                    elif key == 'APl':
+                        metrics['APl'] = float(value)
+                    else:
+                        # 기타 메트릭도 저장
+                        metrics[key] = float(value)
+                        
+                except ValueError as e:
+                    print(f"값 파싱 오류 (라인: {line}): {e}")
+                    continue
+        
+        # 기존 MSNet 출력 형식 파싱 (백업)
+        if not metrics:
+            for line in reversed(lines):
+                if 'Epoch' in line and 'mAP' in line:
+                    # MSNet 출력 형식 파싱
+                    import re
+                    # Epoch xxx/xxx: loss=x.xxx, mAP=x.xxx 형식 파싱
+                    loss_match = re.search(r'loss=([\d.]+)', line)
+                    map_match = re.search(r'mAP=([\d.]+)', line)
+                    
+                    if loss_match:
+                        metrics['total_loss'] = float(loss_match.group(1))
+                    if map_match:
+                        metrics['mAP'] = float(map_match.group(1))
+                    break
+            
+            # key:value 형식도 시도
+            for line in lines:
+                if ':' in line and ('loss' in line.lower() or 'map' in line.lower()):
+                    try:
+                        key, value = line.strip().split(':', 1)
+                        metrics[key.strip()] = float(value.strip())
+                    except ValueError:
+                        pass
+        
+        print(f"파싱된 메트릭: {metrics}")
                     
     except Exception as e:
         print(f"MSNet 결과 파일 파싱 에러: {e}")
@@ -317,7 +354,7 @@ def train_msnet_model_cli(ex_dict):
         f"--UnFreeze_Epoch={ex_dict.get('Epochs', 1)}",
         f"--Unfreeze_batch_size={ex_dict.get('Batch Size', 16)}",
         f"--Init_lr={ex_dict.get('LR', 0.001)}",
-        f"--Min_lr={ex_dict.get('LR', 0.001) * 0.001}",  # LR의 0.001배로 설정
+        f"--Min_lr={ex_dict.get('LR', 0.001) * 0.01}",  # LR의 0.01배로 수정 (더 안정적)
         f"--momentum={ex_dict.get('Momentum', 0.937)}",  # Momentum 추가
         f"--weight_decay={ex_dict.get('Weight Decay', 0)}",  # Weight Decay 추가
         f"--optimizer_type={ex_dict.get('Optimizer', 'adam').lower()}",  # Optimizer 추가
@@ -333,8 +370,8 @@ def train_msnet_model_cli(ex_dict):
     env['PYTHONUNBUFFERED'] = '1'
     
     try:
-        # 프로젝트 루트에서 실행
-        project_root = os.path.dirname(os.path.dirname(MSNET_SOURCE_DIR))
+        # 프로젝트 루트에서 실행 (수정된 부분)
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(MSNET_SOURCE_DIR)))
         
         process = subprocess.Popen(cmd, cwd=project_root, stdout=subprocess.PIPE, 
                                  stderr=subprocess.STDOUT, text=True, 
@@ -391,7 +428,8 @@ def eval_msnet_model_cli(ex_dict):
     # 경로 설정 (따옴표 제거)
     model_path = ex_dict["PT path"]
     data_yaml = temp_data_path
-    map_out_path = output_path
+    # 절대 경로로 변환 (수정된 부분)
+    map_out_path = os.path.abspath(output_path)
     
     # input_shape는 개별 정수로 전달 (get_map_coco.py에서 nargs='+' 사용)
     cmd = [
@@ -401,7 +439,7 @@ def eval_msnet_model_cli(ex_dict):
         f"--data_yaml={data_yaml}",
         f"--map_out_path={map_out_path}",
         "--input_shape", str(ex_dict['Image Size']), str(ex_dict['Image Size']),
-        f"--confidence=0.2",  # 신뢰도 임계값을 0.2로 설정
+        f"--confidence=0.3",  # 신뢰도 임계값을 0.3으로 설정
         f"--cuda={'True' if ex_dict['Device'] != 'cpu' else 'False'}"
     ]
     
@@ -438,8 +476,18 @@ def eval_msnet_model_cli(ex_dict):
         return_code = 1
     
     # 결과 파싱
+    # get_map_coco.py는 map_out_path 디렉토리에 results.txt를 생성
     results_path = os.path.join(output_path, 'results.txt')
-    metrics = parse_msnet_results(results_path)
+    
+    if os.path.exists(results_path):
+        metrics = parse_msnet_results(results_path)
+    else:
+        print(f"결과 파일을 찾을 수 없습니다: {results_path}")
+        # 디버깅을 위해 디렉토리 내용 확인
+        if os.path.exists(output_path):
+            print(f"출력 디렉토리 내용: {os.listdir(output_path)}")
+        metrics = {'mAP': 0.0}
+    
     ex_dict['Eval Results'] = metrics if metrics else {'mAP': 0.0}
     
     # 임시 데이터 파일 삭제
@@ -469,7 +517,8 @@ def test_msnet_model_cli(ex_dict):
     # 경로 설정 (따옴표 제거)
     model_path = ex_dict["PT path"]
     data_yaml = temp_data_path
-    map_out_path = output_path
+    # 절대 경로로 변환 (수정된 부분)
+    map_out_path = os.path.abspath(output_path)
     
     # input_shape는 개별 정수로 전달 (get_map_coco.py에서 nargs='+' 사용)
     cmd = [
@@ -479,7 +528,7 @@ def test_msnet_model_cli(ex_dict):
         f"--data_yaml={data_yaml}",
         f"--map_out_path={map_out_path}",
         "--input_shape", str(ex_dict['Image Size']), str(ex_dict['Image Size']),
-        f"--confidence=0.2",  # 신뢰도 임계값을 0.2로 설정
+        f"--confidence=0.3",  # 신뢰도 임계값을 0.3으로 설정
         f"--cuda={'True' if ex_dict['Device'] != 'cpu' else 'False'}"
     ]
     
@@ -491,8 +540,8 @@ def test_msnet_model_cli(ex_dict):
     env['PYTHONUNBUFFERED'] = '1'
     
     try:
-        # 프로젝트 루트에서 실행
-        project_root = os.path.dirname(os.path.dirname(MSNET_SOURCE_DIR))
+        # 프로젝트 루트에서 실행 (수정된 부분)
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(MSNET_SOURCE_DIR)))
         
         process = subprocess.Popen(cmd, cwd=project_root, stdout=subprocess.PIPE, 
                                  stderr=subprocess.STDOUT, text=True, 
@@ -516,8 +565,18 @@ def test_msnet_model_cli(ex_dict):
         return_code = 1
     
     # 결과 파싱
+    # get_map_coco.py는 map_out_path 디렉토리에 results.txt를 생성
     results_path = os.path.join(output_path, 'results.txt')
-    metrics = parse_msnet_results(results_path)
+    
+    if os.path.exists(results_path):
+        metrics = parse_msnet_results(results_path)
+    else:
+        print(f"결과 파일을 찾을 수 없습니다: {results_path}")
+        # 디버깅을 위해 디렉토리 내용 확인
+        if os.path.exists(output_path):
+            print(f"출력 디렉토리 내용: {os.listdir(output_path)}")
+        metrics = {'mAP': 0.0}
+    
     ex_dict['Test Results'] = metrics if metrics else {'mAP': 0.0}
     
     # 임시 데이터 파일 삭제
