@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 from typing import Dict, List, Any
 
-class YOLOv8Wrapper(UnifiedDetectionModel):
+class YOLOv8Wrapper(UnifiedModelInterface):
     """Ultralytics YOLOv8 통합 인터페이스 래퍼"""
     
     def __init__(self, config: Dict[str, Any]):

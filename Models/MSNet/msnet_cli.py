@@ -11,6 +11,38 @@ import argparse
 MSNET_DIR = os.path.dirname(os.path.abspath(__file__))
 MSNET_SOURCE_DIR = os.path.join(MSNET_DIR, "SourceFile")
 
+def parse_msnet_params(save_dir):
+    """MSNet 모델 파라미터 정보 파싱"""
+    param_info = {}
+    param_file_path = os.path.join(save_dir, 'model_params.txt')
+    
+    if not os.path.exists(param_file_path):
+        print(f"파라미터 정보 파일이 존재하지 않습니다: {param_file_path}")
+        return param_info
+    
+    try:
+        with open(param_file_path, 'r') as f:
+            lines = f.readlines()
+            
+        for line in lines:
+            line = line.strip()
+            if ':' in line:
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                if key in ['Total Parameters', 'Trainable Parameters', 'Non-trainable Parameters']:
+                    param_info[key] = int(value)
+                else:
+                    param_info[key] = value
+                    
+        print(f"📊 모델 파라미터 정보 로드: {param_info}")
+                    
+    except Exception as e:
+        print(f"MSNet 파라미터 파일 파싱 에러: {e}")
+    
+    return param_info
+
 def parse_msnet_results(results_path):
     """MSNet 결과 파일 파싱"""
     metrics = {}
@@ -373,10 +405,9 @@ def train_msnet_model_cli(ex_dict):
     env['PYTHONUNBUFFERED'] = '1'
     
     try:
-        # 프로젝트 루트에서 실행 (수정된 부분)
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(MSNET_SOURCE_DIR)))
+        # MSNet SourceFile 디렉토리에서 실행 (수정된 부분)
         
-        process = subprocess.Popen(cmd, cwd=project_root, stdout=subprocess.PIPE, 
+        process = subprocess.Popen(cmd, cwd=MSNET_SOURCE_DIR, stdout=subprocess.PIPE, 
                                  stderr=subprocess.STDOUT, text=True, 
                                  bufsize=0, universal_newlines=True, env=env)
         
@@ -399,6 +430,13 @@ def train_msnet_model_cli(ex_dict):
     
     # 가중치 파일 경로 설정
     ex_dict['PT path'] = os.path.join(output_path, 'best_epoch_weights.pth')
+    
+    # 모델 파라미터 정보를 ex_dict에 추가
+    param_info = parse_msnet_params(output_path)
+    if param_info:
+        for key, value in param_info.items():
+            ex_dict[key] = value
+        print(f"📊 모델 파라미터 정보가 ex_dict에 추가되었습니다.")
     
     # 임시 데이터 파일 삭제
     if os.path.exists(temp_data_path):
@@ -490,10 +528,9 @@ def eval_msnet_model_cli(ex_dict):
     env['PYTHONUNBUFFERED'] = '1'
     
     try:
-        # 프로젝트 루트에서 실행
-        project_root = os.path.dirname(os.path.dirname(MSNET_SOURCE_DIR))
+        # MSNet SourceFile 디렉토리에서 실행 (수정된 부분)
         
-        process = subprocess.Popen(cmd, cwd=project_root, stdout=subprocess.PIPE, 
+        process = subprocess.Popen(cmd, cwd=MSNET_SOURCE_DIR, stdout=subprocess.PIPE, 
                                  stderr=subprocess.STDOUT, text=True, 
                                  bufsize=0, universal_newlines=True, env=env)
         
@@ -615,10 +652,9 @@ def test_msnet_model_cli(ex_dict):
     env['PYTHONUNBUFFERED'] = '1'
     
     try:
-        # 프로젝트 루트에서 실행 (수정된 부분)
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(MSNET_SOURCE_DIR)))
+        # MSNet SourceFile 디렉토리에서 실행 (수정된 부분)
         
-        process = subprocess.Popen(cmd, cwd=project_root, stdout=subprocess.PIPE, 
+        process = subprocess.Popen(cmd, cwd=MSNET_SOURCE_DIR, stdout=subprocess.PIPE, 
                                  stderr=subprocess.STDOUT, text=True, 
                                  bufsize=0, universal_newlines=True, env=env)
         

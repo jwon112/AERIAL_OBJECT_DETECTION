@@ -56,6 +56,13 @@ except ImportError as e:
     print(f"⚠️ YOLC unified 로드 실패: {e}")
     YOLC_UNIFIED_AVAILABLE = False
 
+try:
+    from Models.DNTR.dntr_unified import build_dntr_unified_model, train_dntr_unified, eval_dntr_unified, test_dntr_unified
+    DNTR_UNIFIED_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ DNTR unified 로드 실패: {e}")
+    DNTR_UNIFIED_AVAILABLE = False
+
 # ============================================================================
 # 모델 등록 함수들
 # ============================================================================
@@ -199,6 +206,17 @@ def register_unified_models() -> Dict[str, Dict[str, Any]]:
             'test': test_yolc_unified,
             'type': 'unified',
             'description': 'YOLC Unified Interface (Utility 기반)'
+        }
+    
+    # DNTR Unified
+    if DNTR_UNIFIED_AVAILABLE:
+        models['DNTR_UNIFIED'] = {
+            'build': build_dntr_unified_model,
+            'train': train_dntr_unified,
+            'eval': eval_dntr_unified,
+            'test': test_dntr_unified,
+            'type': 'unified',
+            'description': 'DNTR Unified Interface (Utility 기반)'
         }
     
     # 기존 unified 모델들 (동적 로드)

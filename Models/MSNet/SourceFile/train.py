@@ -305,6 +305,7 @@ if __name__ == "__main__":
     #   save_dir        权值与日志文件保存的文件夹
     #------------------------------------------------------------------#
     save_dir            = args.save_dir
+
     #------------------------------------------------------------------#
     #   eval_flag       是否在训练时进行评估，评估对象为验证集
     #                   安装pycocotools库后，评估体验更佳。
@@ -348,6 +349,11 @@ if __name__ == "__main__":
         local_rank      = 0
         rank            = 0
 
+    # Create save directory if it doesn't exist (moved here after local_rank is defined)
+    if local_rank == 0:
+        os.makedirs(save_dir, exist_ok=True)
+        print(f"[MSNet] Created save directory: {save_dir}")
+
     #------------------------------------------------------#
     #   获取classes和anchor
     #------------------------------------------------------#
@@ -368,6 +374,29 @@ if __name__ == "__main__":
     #   创建yolo模型
     #------------------------------------------------------#
     model = YoloBody(input_shape, num_classes, phi, pretrained=pretrained)
+    
+    #------------------------------------------------------#
+    #   계산 및 저장 모델 파라미터 정보
+    #------------------------------------------------------#
+    if local_rank == 0:  # 멀티 GPU 환경에서 중복 저장 방지
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        non_trainable_params = total_params - trainable_params
+        
+        print(f"📊 MSNet 모델 파라미터 정보:")
+        print(f"  총 파라미터: {total_params:,}개")
+        print(f"  학습 가능: {trainable_params:,}개")
+        print(f"  고정: {non_trainable_params:,}개")
+        
+        # 파라미터 정보를 파일에 저장
+        param_info_path = os.path.join(save_dir, 'model_params.txt')
+        os.makedirs(save_dir, exist_ok=True)
+        with open(param_info_path, 'w') as f:
+            f.write(f"Total Parameters: {total_params}\n")
+            f.write(f"Trainable Parameters: {trainable_params}\n")
+            f.write(f"Non-trainable Parameters: {non_trainable_params}\n")
+            f.write(f"Model Config: yolov8_{phi}\n")
+        print(f"📁 모델 파라미터 정보 저장: {param_info_path}")
     
     if model_path != '':
         #------------------------------------------------------#
@@ -576,8 +605,10 @@ if __name__ == "__main__":
         #   记录eval的map曲线
         #----------------------#
         if local_rank == 0:
+            # 임시 eval 디렉토리 생성 (체크포인트 파일 보호)
+            temp_map_out_path = os.path.join(save_dir, "temp_map_out")
             eval_callback   = EvalCallback(model, input_shape, class_names, num_classes, val_lines, log_dir, Cuda, \
-                                            map_out_path=save_dir, eval_flag=eval_flag, period=eval_period, confidence=0.00001, nms_iou=0.9, max_boxes=1000, MINOVERLAP=0.1)
+                                            map_out_path=temp_map_out_path, eval_flag=eval_flag, period=eval_period, confidence=0.00001, nms_iou=0.9, max_boxes=1000, MINOVERLAP=0.1)
         else:
             eval_callback   = None
         

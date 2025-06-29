@@ -521,9 +521,35 @@ class Predictor:
         debug_log(f"Video prediction results saved: {results_file}")
 
 def create_predictor(model, device='cpu', config=None):
-    """추론기 생성 헬퍼 함수"""
-    return Predictor(
-        model=model,
-        device=device,
-        config=config
-    ) 
+    """
+    예측기 생성 함수
+    
+    Args:
+        model: 예측할 모델
+        device: 예측 디바이스
+        config: 예측 설정
+        
+    Returns:
+        Predictor 인스턴스
+    """
+    return Predictor(model, device, config)
+
+# 독립적인 함수로 export
+def predict_batch(model, image_paths, device='cpu', config=None, 
+                 save_results=True, class_names=None):
+    """
+    배치 이미지 예측 (독립 함수)
+    
+    Args:
+        model: 예측할 모델
+        image_paths: 이미지 경로 리스트
+        device: 예측 디바이스
+        config: 예측 설정
+        save_results: 결과 저장 여부
+        class_names: 클래스 이름 리스트
+        
+    Returns:
+        예측 결과 리스트
+    """
+    predictor = Predictor(model, device, config)
+    return predictor.predict_batch(image_paths, save_results, class_names) 

@@ -249,3 +249,86 @@ def merge_and_update_df(ex_dict, eval_dict, csv_path=None, exclude_columns=None)
         df.to_csv(csv_path, index=False)
         print(f"DataFrame이 '{csv_path}'에 저장되었습니다.")
     return df
+
+def save_evaluation_results(results: dict, output_path: str, model_name: str, dataset_name: str, 
+                           experiment_id: str = None, format_type: str = 'json'):
+    """
+    평가 결과를 파일로 저장
+    
+    Args:
+        results: 평가 결과 딕셔너리
+        output_path: 저장할 파일 경로
+        model_name: 모델 이름
+        dataset_name: 데이터셋 이름
+        experiment_id: 실험 ID (선택사항)
+        format_type: 저장 형식 ('json', 'csv', 'txt')
+    """
+    import json
+    from pathlib import Path
+    
+    # 출력 디렉토리 생성
+    output_dir = Path(output_path).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 메타데이터 추가
+    save_data = {
+        'model_name': model_name,
+        'dataset_name': dataset_name,
+        'timestamp': datetime.now().isoformat(),
+        'results': results
+    }
+    
+    if experiment_id:
+        save_data['experiment_id'] = experiment_id
+    
+    try:
+        if format_type.lower() == 'json':
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(save_data, f, indent=2, ensure_ascii=False)
+        
+        elif format_type.lower() == 'csv':
+            # 결과를 CSV 형식으로 변환
+            import pandas as pd
+            
+            # 평면화된 결과 딕셔너리 생성
+            flat_results = {}
+            for key, value in results.items():
+                if isinstance(value, dict):
+                    for sub_key, sub_value in value.items():
+                        flat_results[f"{key}_{sub_key}"] = sub_value
+                else:
+                    flat_results[key] = value
+            
+            # 메타데이터 추가
+            flat_results['model_name'] = model_name
+            flat_results['dataset_name'] = dataset_name
+            flat_results['timestamp'] = save_data['timestamp']
+            if experiment_id:
+                flat_results['experiment_id'] = experiment_id
+            
+            df = pd.DataFrame([flat_results])
+            df.to_csv(output_path, index=False)
+        
+        elif format_type.lower() == 'txt':
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(f"Model: {model_name}\n")
+                f.write(f"Dataset: {dataset_name}\n")
+                f.write(f"Timestamp: {save_data['timestamp']}\n")
+                if experiment_id:
+                    f.write(f"Experiment ID: {experiment_id}\n")
+                f.write("\nResults:\n")
+                f.write("=" * 50 + "\n")
+                
+                for key, value in results.items():
+                    if isinstance(value, dict):
+                        f.write(f"\n{key}:\n")
+                        for sub_key, sub_value in value.items():
+                            f.write(f"  {sub_key}: {sub_value}\n")
+                    else:
+                        f.write(f"{key}: {value}\n")
+        
+        print(f"평가 결과가 '{output_path}'에 저장되었습니다.")
+        
+    except Exception as e:
+        print(f"평가 결과 저장 중 오류 발생: {e}")
+        raise
