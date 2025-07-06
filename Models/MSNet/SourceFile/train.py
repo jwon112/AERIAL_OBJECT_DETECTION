@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument('--classes_path', type=str, default='model_data/nwpu_voc_classes.txt', help='Classes file path')
     parser.add_argument('--model_path', type=str, default='', help='Model weights path')
     parser.add_argument('--input_shape', type=str, default='[640, 640]', help='Input shape')
-    parser.add_argument('--phi', type=str, default='l', help='YOLOv8 version')
+    parser.add_argument('--phi', type=str, default='m', help='YOLOv8 version')
     parser.add_argument('--pretrained', type=str, default='False', help='Use pretrained weights')
     parser.add_argument('--mosaic', type=str, default='True', help='Use mosaic augmentation')
     parser.add_argument('--mosaic_prob', type=float, default=0.5, help='Mosaic probability')

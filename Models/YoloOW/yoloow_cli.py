@@ -234,6 +234,23 @@ def train_yoloow_model_cli(ex_dict):
         'total_loss': 0.0
     }
     
+    # 모델 파라미터 정보 추가 (공통 함수 사용)
+    print(f"[DEBUG] YoloOW 파라미터 정보 추가 시작")
+    print(f"[DEBUG] output_dir: {output_dir}")
+    print(f"[DEBUG] output_dir 존재 여부: {os.path.exists(output_dir)}")
+    if os.path.exists(output_dir):
+        files_in_output_dir = os.listdir(output_dir)
+        print(f"[DEBUG] output_dir 내용: {files_in_output_dir}")
+        
+    from utility.utils import add_model_params_to_ex_dict
+    ex_dict_before = ex_dict.copy()
+    ex_dict = add_model_params_to_ex_dict(ex_dict, output_dir)
+    
+    print(f"[DEBUG] 파라미터 정보 추가 전 ex_dict 키 개수: {len(ex_dict_before)}")
+    print(f"[DEBUG] 파라미터 정보 추가 후 ex_dict 키 개수: {len(ex_dict)}")
+    param_keys = [k for k in ex_dict.keys() if 'Parameter' in k or 'Model' in k]
+    print(f"[DEBUG] 추가된 파라미터 키들: {param_keys}")
+    
     # 임시 파일 정리
     try:
         os.unlink(temp_data_path)

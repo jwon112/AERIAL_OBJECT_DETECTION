@@ -354,6 +354,10 @@ def train_msnet_model_cli(ex_dict):
     # 학습 시작 시간 설정
     ex_dict['Train Time'] = datetime.now().strftime("%y%m%d_%H%M%S")
     
+    # Model Config 사전 설정 (학습 전에 미리 설정)
+    if 'Model Config' not in ex_dict:
+        ex_dict['Model Config'] = 'yolov8_m'  # 기본값 설정
+    
     # 데이터 설정 파일 생성
     temp_data_path = create_msnet_data_config(ex_dict)
     temp_dir = os.path.dirname(temp_data_path)
@@ -377,6 +381,24 @@ def train_msnet_model_cli(ex_dict):
     # 절대 경로로 save_dir 설정 (수정된 부분)
     save_dir_abs = os.path.abspath(output_path)
     
+    # MSNet 모델 크기 설정 (phi 파라미터)
+    # ex_dict에서 Model Config를 확인하여 phi 값 결정
+    model_config = ex_dict.get('Model Config', 'yolov8_s')  # 기본값: s
+    if 'yolov8_n' in model_config:
+        phi = 'n'
+    elif 'yolov8_s' in model_config:
+        phi = 's'
+    elif 'yolov8_m' in model_config:
+        phi = 'm'
+    elif 'yolov8_l' in model_config:
+        phi = 'l'
+    elif 'yolov8_x' in model_config:
+        phi = 'x'
+    else:
+        phi = 's'  # 기본값
+    
+    print(f"[MSNet] Model Config: {model_config} → phi: {phi}")
+
     cmd = [
         sys.executable,
         train_script,
@@ -384,6 +406,7 @@ def train_msnet_model_cli(ex_dict):
         f"--val_annotation_path={val_annotation_path}",
         f"--classes_path={classes_path}",
         f"--input_shape={input_shape_str}",
+        f"--phi={phi}",  # phi 파라미터 추가
         f"--save_dir={save_dir_abs}",
         f"--cuda={'True' if ex_dict['Device'] != 'cpu' else 'False'}",
         f"--UnFreeze_Epoch={ex_dict.get('Epochs', 1)}",
@@ -508,6 +531,23 @@ def eval_msnet_model_cli(ex_dict):
     # 절대 경로로 변환 (수정된 부분)
     map_out_path = os.path.abspath(output_path)
     
+    # MSNet 모델 크기 설정 (phi 파라미터)
+    model_config = ex_dict.get('Model Config', 'yolov8_s')  # 기본값: s
+    if 'yolov8_n' in model_config:
+        phi = 'n'
+    elif 'yolov8_s' in model_config:
+        phi = 's'
+    elif 'yolov8_m' in model_config:
+        phi = 'm'
+    elif 'yolov8_l' in model_config:
+        phi = 'l'
+    elif 'yolov8_x' in model_config:
+        phi = 'x'
+    else:
+        phi = 's'  # 기본값
+    
+    print(f"[MSNet Eval] Model Config: {model_config} → phi: {phi}")
+
     # input_shape는 개별 정수로 전달 (get_map_coco.py에서 nargs='+' 사용)
     cmd = [
         sys.executable,
@@ -516,6 +556,7 @@ def eval_msnet_model_cli(ex_dict):
         f"--data_yaml={data_yaml}",
         f"--map_out_path={map_out_path}",
         "--input_shape", str(ex_dict['Image Size']), str(ex_dict['Image Size']),
+        f"--phi={phi}",  # phi 파라미터 추가
         f"--confidence=0.3",  # 신뢰도 임계값을 0.3으로 설정
         f"--cuda={'True' if ex_dict['Device'] != 'cpu' else 'False'}"
     ]
@@ -632,6 +673,23 @@ def test_msnet_model_cli(ex_dict):
     # 절대 경로로 변환 (수정된 부분)
     map_out_path = os.path.abspath(output_path)
     
+    # MSNet 모델 크기 설정 (phi 파라미터)
+    model_config = ex_dict.get('Model Config', 'yolov8_s')  # 기본값: s
+    if 'yolov8_n' in model_config:
+        phi = 'n'
+    elif 'yolov8_s' in model_config:
+        phi = 's'
+    elif 'yolov8_m' in model_config:
+        phi = 'm'
+    elif 'yolov8_l' in model_config:
+        phi = 'l'
+    elif 'yolov8_x' in model_config:
+        phi = 'x'
+    else:
+        phi = 's'  # 기본값
+    
+    print(f"[MSNet Test] Model Config: {model_config} → phi: {phi}")
+
     # input_shape는 개별 정수로 전달 (get_map_coco.py에서 nargs='+' 사용)
     cmd = [
         sys.executable,
@@ -640,6 +698,7 @@ def test_msnet_model_cli(ex_dict):
         f"--data_yaml={data_yaml}",
         f"--map_out_path={map_out_path}",
         "--input_shape", str(ex_dict['Image Size']), str(ex_dict['Image Size']),
+        f"--phi={phi}",  # phi 파라미터 추가
         f"--confidence=0.3",  # 신뢰도 임계값을 0.3으로 설정
         f"--cuda={'True' if ex_dict['Device'] != 'cpu' else 'False'}"
     ]

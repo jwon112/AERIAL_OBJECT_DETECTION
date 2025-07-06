@@ -7,7 +7,28 @@ import warnings
 
 import mmcv
 import torch
-from mmcv import Config, DictAction
+
+# mmcv 버전 호환성을 위한 Config import (mmcv 2.x에서는 mmengine 우선)
+try:
+    # mmcv 2.x: Config가 mmengine에 있음
+    from mmengine import Config
+    from mmcv import DictAction
+    print("✅ mmengine Config import 성공")
+except ImportError:
+    try:
+        # mmcv 1.x: Config가 mmcv에 있음
+        from mmcv import Config, DictAction
+        print("✅ mmcv Config import 성공")
+    except ImportError:
+        try:
+            # 백업: mmcv.utils에서 시도
+            from mmcv.utils import Config, DictAction
+            print("✅ mmcv.utils Config import 성공")
+        except ImportError:
+            raise ImportError(
+                "Cannot import Config. Please install compatible mmcv or mmengine version."
+            )
+
 from mmcv.cnn import fuse_conv_bn
 from mmcv.runner import (get_dist_info, init_dist, load_checkpoint,
                          wrap_fp16_model)

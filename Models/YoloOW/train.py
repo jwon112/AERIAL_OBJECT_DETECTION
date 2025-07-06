@@ -100,6 +100,33 @@ def train(hyp, opt, device, tb_writer=None):
         logger.info('Transferred %g/%g items from %s' % (len(state_dict), len(model.state_dict()), weights))  # report
     else:
         model = Model(opt.cfg, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
+    
+    # 모델 파라미터 정보 저장 (rank 0에서만 실행)
+    if rank in [-1, 0]:
+        try:
+            total_params = sum(p.numel() for p in model.parameters())
+            trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            non_trainable_params = total_params - trainable_params
+            
+            print(f"📊 YoloOW 모델 파라미터 정보:")
+            print(f"  총 파라미터: {total_params:,}개")
+            print(f"  학습 가능: {trainable_params:,}개")
+            print(f"  고정: {non_trainable_params:,}개")
+            
+            # 파라미터 정보를 파일에 저장
+            param_info_path = save_dir / 'model_params.txt'
+            with open(param_info_path, 'w') as f:
+                f.write(f"Total Parameters: {total_params}\n")
+                f.write(f"Trainable Parameters: {trainable_params}\n")
+                f.write(f"Non-trainable Parameters: {non_trainable_params}\n")
+                f.write(f"Model Name: YoloOW\n")
+                f.write(f"Model Config: {opt.cfg}\n")
+            
+            print(f"📁 모델 파라미터 정보 저장: {param_info_path}")
+            
+        except Exception as e:
+            print(f"❌ YoloOW 파라미터 정보 저장 중 오류: {e}")
+    
     with torch_distributed_zero_first(rank):
         check_dataset(data_dict)  # check
     train_path = data_dict['train']

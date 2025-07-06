@@ -332,3 +332,194 @@ def save_evaluation_results(results: dict, output_path: str, model_name: str, da
     except Exception as e:
         print(f"평가 결과 저장 중 오류 발생: {e}")
         raise
+
+def save_model_params_info(model, save_dir, model_name, config_info=None):
+    """
+    모델 파라미터 정보를 파일에 저장하는 공통 함수
+    
+    Args:
+        model: PyTorch 모델 객체
+        save_dir: 저장할 디렉토리
+        model_name: 모델 이름
+        config_info: 추가 설정 정보 (선택사항)
+    """
+    if not hasattr(model, 'parameters'):
+        print(f"⚠️ {model_name}: PyTorch 모델이 아니므로 파라미터 정보를 계산할 수 없습니다.")
+        return
+    
+    try:
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        non_trainable_params = total_params - trainable_params
+        
+        print(f"📊 {model_name} 모델 파라미터 정보:")
+        print(f"  총 파라미터: {total_params:,}개")
+        print(f"  학습 가능: {trainable_params:,}개")
+        print(f"  고정: {non_trainable_params:,}개")
+        
+        # 파라미터 정보를 파일에 저장
+        os.makedirs(save_dir, exist_ok=True)
+        param_info_path = os.path.join(save_dir, 'model_params.txt')
+        with open(param_info_path, 'w') as f:
+            f.write(f"Total Parameters: {total_params}\n")
+            f.write(f"Trainable Parameters: {trainable_params}\n")
+            f.write(f"Non-trainable Parameters: {non_trainable_params}\n")
+            f.write(f"Model Name: {model_name}\n")
+            if config_info:
+                f.write(f"Model Config: {config_info}\n")
+        
+        print(f"📁 모델 파라미터 정보 저장: {param_info_path}")
+        
+    except Exception as e:
+        print(f"❌ {model_name} 파라미터 정보 저장 중 오류: {e}")
+
+def load_model_params_info(save_dir):
+    """
+    저장된 모델 파라미터 정보를 로드하는 공통 함수
+    
+    Args:
+        save_dir: 파라미터 정보 파일이 있는 디렉토리
+        
+    Returns:
+        dict: 파라미터 정보 딕셔너리
+    """
+    print(f"[DEBUG] load_model_params_info 시작")
+    print(f"[DEBUG] save_dir: {save_dir}")
+    
+    param_info = {}
+    param_file_path = os.path.join(save_dir, 'model_params.txt')
+    print(f"[DEBUG] 찾는 파일 경로: {param_file_path}")
+    
+    if not os.path.exists(param_file_path):
+        print(f"[DEBUG] 파라미터 정보 파일이 존재하지 않습니다: {param_file_path}")
+        return param_info
+    
+    print(f"[DEBUG] 파라미터 정보 파일 존재함: {param_file_path}")
+    
+    try:
+        with open(param_file_path, 'r') as f:
+            lines = f.readlines()
+        
+        print(f"[DEBUG] 파일에서 읽은 라인 수: {len(lines)}")
+        for i, line in enumerate(lines):
+            print(f"[DEBUG] 라인 {i}: {repr(line)}")
+            
+        for line in lines:
+            line = line.strip()
+            if ':' in line:
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                print(f"[DEBUG] 파싱 중: key='{key}', value='{value}'")
+                
+                if key in ['Total Parameters', 'Trainable Parameters', 'Non-trainable Parameters']:
+                    try:
+                        param_info[key] = int(value)
+                        print(f"[DEBUG] 정수로 저장: {key} = {param_info[key]}")
+                    except ValueError as e:
+                        print(f"[DEBUG] 정수 변환 실패: {key}={value}, 에러: {e}")
+                        param_info[key] = value
+                else:
+                    param_info[key] = value
+                    print(f"[DEBUG] 문자열로 저장: {key} = {value}")
+                    
+        print(f"[DEBUG] 최종 param_info: {param_info}")
+        print(f"📊 모델 파라미터 정보 로드: {param_info}")
+                    
+    except Exception as e:
+        print(f"[DEBUG] 모델 파라미터 파일 파싱 에러: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    return param_info
+
+def add_model_params_to_ex_dict(ex_dict, save_dir):
+    """
+    ex_dict에 모델 파라미터 정보를 추가하는 공통 함수
+    
+    Args:
+        ex_dict: 실험 딕셔너리
+        save_dir: 파라미터 정보 파일이 있는 디렉토리
+    """
+    print(f"[DEBUG] add_model_params_to_ex_dict 시작")
+    print(f"[DEBUG] ex_dict 입력 키 개수: {len(ex_dict)}")
+    print(f"[DEBUG] save_dir: {save_dir}")
+    
+    param_info = load_model_params_info(save_dir)
+    print(f"[DEBUG] load_model_params_info 결과: {param_info}")
+    
+    if param_info:
+        print(f"[DEBUG] param_info가 비어있지 않음, 항목 개수: {len(param_info)}")
+        for key, value in param_info.items():
+            print(f"[DEBUG] ex_dict에 추가: {key} = {value}")
+            ex_dict[key] = value
+        print(f"[DEBUG] 📊 모델 파라미터 정보가 ex_dict에 추가되었습니다.")
+        print(f"[DEBUG] ex_dict 결과 키 개수: {len(ex_dict)}")
+        param_keys = [k for k in ex_dict.keys() if 'Parameter' in k or 'Model' in k]
+        print(f"[DEBUG] ex_dict에 있는 파라미터 관련 키들: {param_keys}")
+    else:
+        print(f"[DEBUG] param_info가 비어있음 - 파라미터 정보가 추가되지 않음")
+    
+    return ex_dict
+
+def extract_params_from_checkpoint(checkpoint_path, model_name, save_dir):
+    """
+    PyTorch 체크포인트에서 모델 파라미터 정보를 추출하여 저장
+    
+    Args:
+        checkpoint_path: 체크포인트 파일 경로
+        model_name: 모델 이름
+        save_dir: 저장할 디렉토리
+    """
+    if not os.path.exists(checkpoint_path):
+        print(f"체크포인트 파일이 존재하지 않습니다: {checkpoint_path}")
+        return
+    
+    try:
+        import torch
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        
+        # 체크포인트에서 state_dict 추출
+        if 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
+        elif 'model' in checkpoint:
+            state_dict = checkpoint['model']
+        else:
+            state_dict = checkpoint
+        
+        # 파라미터 개수 계산
+        total_params = 0
+        trainable_params = 0
+        
+        for name, param in state_dict.items():
+            if hasattr(param, 'numel'):
+                param_count = param.numel()
+            else:
+                param_count = param.size().numel() if hasattr(param, 'size') else 0
+            
+            total_params += param_count
+            # 대부분의 파라미터는 학습 가능하다고 가정
+            trainable_params += param_count
+        
+        non_trainable_params = total_params - trainable_params
+        
+        print(f"📊 {model_name} 모델 파라미터 정보 (체크포인트에서 추출):")
+        print(f"  총 파라미터: {total_params:,}개")
+        print(f"  학습 가능: {trainable_params:,}개")
+        print(f"  고정: {non_trainable_params:,}개")
+        
+        # 파라미터 정보를 파일에 저장
+        os.makedirs(save_dir, exist_ok=True)
+        param_info_path = os.path.join(save_dir, 'model_params.txt')
+        with open(param_info_path, 'w') as f:
+            f.write(f"Total Parameters: {total_params}\n")
+            f.write(f"Trainable Parameters: {trainable_params}\n")
+            f.write(f"Non-trainable Parameters: {non_trainable_params}\n")
+            f.write(f"Model Name: {model_name}\n")
+            f.write(f"Checkpoint Path: {checkpoint_path}\n")
+        
+        print(f"📁 모델 파라미터 정보 저장: {param_info_path}")
+        
+    except Exception as e:
+        print(f"❌ {model_name} 체크포인트에서 파라미터 정보 추출 중 오류: {e}")

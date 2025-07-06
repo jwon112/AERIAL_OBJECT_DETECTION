@@ -195,8 +195,23 @@ def main():
     # environment info and seed, which will be logged
     meta = dict()
     # log env info
-    env_info_dict = collect_env()
-    env_info = '\n'.join([(f'{k}: {v}') for k, v in env_info_dict.items()])
+    try:
+        env_info_dict = collect_env()
+        env_info = '\n'.join([(f'{k}: {v}') for k, v in env_info_dict.items()])
+        logger.info('Environment info collected successfully')
+    except (UnicodeDecodeError, Exception) as e:
+        logger.warning(f'Failed to collect environment info: {e}')
+        # 기본 환경 정보 생성
+        import torch
+        env_info_dict = {
+            'Platform': 'Windows',
+            'Python': f'{torch.__version__}',
+            'PyTorch': f'{torch.__version__}',
+            'CUDA': f'{torch.version.cuda}' if torch.cuda.is_available() else 'Not available',
+            'Error': 'Environment collection failed due to encoding issue'
+        }
+        env_info = '\n'.join([(f'{k}: {v}') for k, v in env_info_dict.items()])
+    
     dash_line = '-' * 60 + '\n'
     logger.info('Environment info:\n' + dash_line + env_info + '\n' +
                 dash_line)

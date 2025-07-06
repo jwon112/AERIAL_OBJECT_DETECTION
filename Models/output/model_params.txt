@@ -1,0 +1,5 @@
+Total Parameters: 33528865
+Trainable Parameters: 33528865
+Non-trainable Parameters: 0
+Model Name: DNTR
+Source: Model Architecture

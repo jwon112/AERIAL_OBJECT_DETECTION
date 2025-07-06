@@ -88,21 +88,24 @@ class YoloBody(nn.Module):
 		self.backbone = Backbone(base_channels, base_depth, deep_mul, phi, pretrained=pretrained)
 		
 		# ------------------------加强特征提取网络------------------------#
-		self.upsample = CARAFE(base_channels * 8, base_channels * 8)
+		# feat3 채널 수에 맞춰 CARAFE 수정 (deep_mul 고려)
+		feat3_channels = int(base_channels * 16 * deep_mul)
+		self.upsample1 = CARAFE(feat3_channels, base_channels * 8)  # feat3 -> P5_upsample
+		self.upsample2 = CARAFE(base_channels * 8, base_channels * 8)  # P4 -> P4_upsample
 		
-		# 1024 * deep_mul + 512, 40, 40 => 512, 40, 40
-		self.conv3_for_upsample1 = ACmix(int(base_channels * 16 * deep_mul) + base_channels * 8, base_channels * 8)
+		# P5_upsample(base_channels*8) + feat2(base_channels*8) => base_channels*8
+		self.conv3_for_upsample1 = ACmix(base_channels * 16, base_channels * 8)
 		# 768, 80, 80 => 256, 80, 80
 		self.conv3_for_upsample2 = ACmix(base_channels * 8 + base_channels * 4, base_channels * 4)
 		
 		# 256, 80, 80 => 256, 40, 40
 		self.down_sample1 = Conv(base_channels * 4, base_channels * 4, 3, 2)
-		# 512 + 256, 40, 40 => 512, 40, 40
-		self.conv3_for_downsample1 = ACmix(base_channels * 8 + base_channels * 12, base_channels * 8)
+		# P3_downsample(base_channels*4) + P4(base_channels*8) + feat2(base_channels*8) => base_channels*20
+		self.conv3_for_downsample1 = ACmix(base_channels * 20, base_channels * 8)
 		
 		# 512, 40, 40 => 512, 20, 20
 		self.down_sample2 = Conv(base_channels * 8, base_channels * 8, 3, 2)
-		# 1024 * deep_mul + 512, 20, 20 =>  1024 * deep_mul, 20, 20
+		# P4_downsample(base_channels*8) + feat3(deep_mul*base_channels*16) => (8+16*deep_mul)*base_channels
 		self.conv3_for_downsample2 = ACmix(int(base_channels * 16 * deep_mul) + base_channels * 8, int(base_channels * 16 * deep_mul))
 		
 		ch = [base_channels * 4, base_channels * 8, int(base_channels * 16 * deep_mul)]
@@ -174,46 +177,46 @@ class YoloBody(nn.Module):
 			feat3: feat3_mask
 		"""
 		# ------------------------加强特征提取网络------------------------#
-		# 1024 * deep_mul, 20, 20 => 1024 * deep_mul, 40, 40
-		P5_upsample = self.upsample(feat3)
+		# feat3 (deep_mul*base_channels*16), 20, 20 => base_channels*8, 40, 40
+		P5_upsample = self.upsample1(feat3)
 		
-		# 1024 * deep_mul, 40, 40 cat 512, 40, 40 => 1024 * deep_mul + 512, 40, 40 --> 1024, 40, 40
+		# base_channels*8, 40, 40 cat base_channels*8, 40, 40 => base_channels*16, 40, 40 --> base_channels*8, 40, 40
 		P4 = torch.cat([P5_upsample, feat2], 1)
 		
-		# 1024 * deep_mul + 512, 40, 40 == 1024, 40, 40 => 512, 40, 40
+		# base_channels*16, 40, 40 => base_channels*8, 40, 40
 		P4 = self.conv3_for_upsample1(P4)
 		
-		# 512, 40, 40 => 512, 80, 80
-		P4_upsample = self.upsample(P4)
+		# base_channels*8, 40, 40 => base_channels*8, 80, 80
+		P4_upsample = self.upsample2(P4)
 		
-		# 512, 80, 80 cat 256, 80, 80 => 768, 80, 80
+		# base_channels*8, 80, 80 cat base_channels*4, 80, 80 => base_channels*12, 80, 80
 		P3 = torch.cat([P4_upsample, feat1], 1)
 		
-		# 768, 80, 80 => 256, 80, 80
+		# base_channels*12, 80, 80 => base_channels*4, 80, 80
 		P3 = self.conv3_for_upsample2(P3)
 		
-		# 256, 80, 80 => 256, 40, 40
+		# base_channels*4, 80, 80 => base_channels*4, 40, 40
 		P3_downsample = self.down_sample1(P3)
 		
-		# 512, 40, 40 cat 256, 40, 40 => 768, 40, 40
+		# base_channels*8, 40, 40 cat base_channels*4, 40, 40 => base_channels*12, 40, 40
 		P4 = torch.cat([P3_downsample, P4], 1)
 		
-		# 768, 40, 40 => 1280, 40, 40
+		# base_channels*12, 40, 40 => base_channels*20, 40, 40
 		P4 = torch.cat([P4, feat2], 1)
-		# 1280, 40, 40 => 512, 40, 40
+		# base_channels*20, 40, 40 => base_channels*8, 40, 40
 		P4 = self.conv3_for_downsample1(P4)
 		
-		# 512, 40, 40 => 512, 20, 20
+		# base_channels*8, 40, 40 => base_channels*8, 20, 20
 		P4_downsample = self.down_sample2(P4)
 		
-		# 512, 20, 20 cat 1024 * deep_mul, 20, 20 => 1024 * deep_mul + 512, 20, 20
+		# base_channels*8, 20, 20 cat deep_mul*base_channels*16, 20, 20 => (8+16*deep_mul)*base_channels, 20, 20
 		P5 = torch.cat([P4_downsample, feat3], 1)
-		# 1024 * deep_mul + 512, 20, 20 => 1024 * deep_mul, 20, 20
+		# (8+16*deep_mul)*base_channels, 20, 20 => deep_mul*base_channels*16, 20, 20
 		P5 = self.conv3_for_downsample2(P5)
 		# ------------------------加强特征提取网络------------------------#
-		# P3 256, 80, 80
-		# P4 512, 40, 40
-		# P5 1024 * deep_mul, 20, 20
+		# P3 base_channels*4, 80, 80
+		# P4 base_channels*8, 40, 40
+		# P5 deep_mul*base_channels*16, 20, 20
 		shape = P3.shape  # BCHW
 		return [P3, P4, P5, shape]
 	

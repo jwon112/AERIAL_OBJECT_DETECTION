@@ -138,6 +138,33 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         LOGGER.info(f'Transferred {len(csd)}/{len(model.state_dict())} items from {weights}')  # report
     else:
         model = Model(cfg, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
+    
+    # 모델 파라미터 정보 저장 (RANK 0에서만 실행)
+    if RANK in {-1, 0}:
+        try:
+            total_params = sum(p.numel() for p in model.parameters())
+            trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            non_trainable_params = total_params - trainable_params
+            
+            print(f"📊 FFCA-YOLO 모델 파라미터 정보:")
+            print(f"  총 파라미터: {total_params:,}개")
+            print(f"  학습 가능: {trainable_params:,}개")
+            print(f"  고정: {non_trainable_params:,}개")
+            
+            # 파라미터 정보를 파일에 저장
+            param_info_path = save_dir / 'model_params.txt'
+            with open(param_info_path, 'w') as f:
+                f.write(f"Total Parameters: {total_params}\n")
+                f.write(f"Trainable Parameters: {trainable_params}\n")
+                f.write(f"Non-trainable Parameters: {non_trainable_params}\n")
+                f.write(f"Model Name: FFCA-YOLO\n")
+                f.write(f"Model Config: {cfg}\n")
+            
+            print(f"📁 모델 파라미터 정보 저장: {param_info_path}")
+            
+        except Exception as e:
+            print(f"❌ FFCA-YOLO 파라미터 정보 저장 중 오류: {e}")
+    
     amp = check_amp(model)  # check AMP
 
     # Freeze
