@@ -9,6 +9,13 @@ Model Registry
 4. 실험 로깅 시스템
 """
 
+# ============================================================================
+# 글로벌 설정
+# ============================================================================
+
+# 🎯 모든 실험에서 사용할 글로벌 seed (재현성 보장)
+GLOBAL_SEED = 42
+
 import os
 import sys
 import logging
@@ -173,7 +180,7 @@ def register_cli_models() -> Dict[str, Dict[str, Any]]:
     
     # MSNet CLI
     models['MSNet_CLI'] = {
-        'build': partial(build_msnet_model_cli, cfg='yolov8_l.yaml'),
+        'build': partial(build_msnet_model_cli, cfg='yolov8_m.yaml'),
         'train': train_msnet_model_cli,
         'eval': eval_msnet_model_cli,
         'test': test_msnet_model_cli,

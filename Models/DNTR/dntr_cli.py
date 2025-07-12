@@ -187,12 +187,15 @@ def train_dntr_model_cli(ex_dict):
     # 학습 스크립트 경로
     train_script = os.path.join(MMDET_DNTR_DIR, "tools", "train.py")
     
+    # ex_dict에서 seed 값 읽기
+    seed = ex_dict.get('Seed', 42)
+    
     cmd = [
         sys.executable,
         train_script,
         temp_config_path,
         f"--work-dir={output_path}",
-        f"--seed=42",
+        f"--seed={seed}",
     ]
     
     # GPU 설정

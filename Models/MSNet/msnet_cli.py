@@ -124,7 +124,11 @@ def build_msnet_model_cli(cfg=None, ex_dict=None):
     device = ex_dict.get('Device', 'cpu')
     
     if cfg is None:
-        cfg = "yolov8_l.yaml"  # MSNet은 YOLOv8-L 기반
+        cfg = "yolov8_l.yaml"  # MSNet은 YOLOv8-L 기본
+    
+    # 🔥 CRITICAL: Build 시점에서 Model Config를 ex_dict에 먼저 설정
+    # registry.py에서 전달받은 cfg 파라미터를 ex_dict에 반영
+    ex_dict['Model Config'] = cfg
     
     return {
         'cfg': cfg,
@@ -354,9 +358,13 @@ def train_msnet_model_cli(ex_dict):
     # 학습 시작 시간 설정
     ex_dict['Train Time'] = datetime.now().strftime("%y%m%d_%H%M%S")
     
-    # Model Config 사전 설정 (학습 전에 미리 설정)
+    # Model Config는 build 함수에서 이미 설정됨 (registry.py에서 전달받은 값)
+    # 만약 설정되지 않았다면 기본값 설정 (백업용)
     if 'Model Config' not in ex_dict:
         ex_dict['Model Config'] = 'yolov8_m'  # 기본값 설정
+        print(f"⚠️  [MSNet] Model Config가 설정되지 않아 기본값 사용: {ex_dict['Model Config']}")
+    else:
+        print(f"✅ [MSNet] Model Config 설정됨: {ex_dict['Model Config']}")
     
     # 데이터 설정 파일 생성
     temp_data_path = create_msnet_data_config(ex_dict)
@@ -399,6 +407,9 @@ def train_msnet_model_cli(ex_dict):
     
     print(f"[MSNet] Model Config: {model_config} → phi: {phi}")
 
+    # ex_dict에서 seed 값 읽기
+    seed = ex_dict.get('Seed', 42)  # MSNet 기본값: 3407
+
     cmd = [
         sys.executable,
         train_script,
@@ -417,7 +428,8 @@ def train_msnet_model_cli(ex_dict):
         f"--weight_decay={ex_dict.get('Weight Decay', 0)}",  # Weight Decay 추가
         f"--optimizer_type={ex_dict.get('Optimizer', 'adam').lower()}",  # Optimizer 추가
         f"--Freeze_Train=False",  # 동결 훈련 비활성화
-        f"--num_workers={ex_dict.get('Num Workers', 0)}"
+        f"--num_workers={ex_dict.get('Num Workers', 0)}",
+        f"--seed={seed}"  # 🎯 seed 파라미터 추가
     ]
     
     print(f"MSNet 학습 명령어: {' '.join(cmd)}")

@@ -128,6 +128,9 @@ def train_yoloow_model_cli(ex_dict):
     temp_data_path = temp_data_file.name
     print(f"임시 데이터 설정 파일: {temp_data_path}")
     
+    # ex_dict에서 seed 값 읽기
+    seed = ex_dict.get('Seed', 42)  # YoloOW 기본값: 2
+    
     cmd = [
         "python",  # sys.executable 대신 python 명령어 사용
         os.path.join(YOLOOW_DIR, 'train.py'),
@@ -142,6 +145,7 @@ def train_yoloow_model_cli(ex_dict):
         f"--epochs={ex_dict['Epochs']}",
         f"--project={ex_dict['Output Dir']}",
         f"--hyp={hyp_path}",
+        f"--seed={seed}",  # 🎯 seed 파라미터 추가
     ]
     
     # Adam optimizer 설정 (boolean flag로 처리)

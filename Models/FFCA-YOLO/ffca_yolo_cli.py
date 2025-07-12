@@ -133,6 +133,9 @@ def train_ffca_yolo_model_cli(ex_dict):
     # 학습 스크립트
     train_script = os.path.join(FFCA_YOLO_DIR, 'train.py')
     
+    # ex_dict에서 seed 값 읽기
+    seed = ex_dict.get('Seed', 42)  # FFCA-YOLO 기본값: 0
+    
     cmd = [
         sys.executable,
         train_script,
@@ -147,6 +150,7 @@ def train_ffca_yolo_model_cli(ex_dict):
         f"--project={ex_dict['Output Dir']}",
         f"--workers={ex_dict.get('Num Workers', 0)}",
         f"--device={ex_dict['Device'] if isinstance(ex_dict['Device'], int) else 0}",
+        f"--seed={seed}",  # 🎯 seed 파라미터 추가
         "--cache",  # 이미지 캐싱으로 속도 향상
         "--save-period=1",  # 매 epoch마다 저장
         "--exist-ok"  # 기존 디렉토리 덮어쓰기 허용
