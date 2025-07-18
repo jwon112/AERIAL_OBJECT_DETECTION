@@ -569,7 +569,7 @@ def eval_msnet_model_cli(ex_dict):
         f"--map_out_path={map_out_path}",
         "--input_shape", str(ex_dict['Image Size']), str(ex_dict['Image Size']),
         f"--phi={phi}",  # phi 파라미터 추가
-        f"--confidence=0.3",  # 신뢰도 임계값을 0.3으로 설정
+        f"--confidence=0.001",
         f"--cuda={'True' if ex_dict['Device'] != 'cpu' else 'False'}"
     ]
     
@@ -711,7 +711,7 @@ def test_msnet_model_cli(ex_dict):
         f"--map_out_path={map_out_path}",
         "--input_shape", str(ex_dict['Image Size']), str(ex_dict['Image Size']),
         f"--phi={phi}",  # phi 파라미터 추가
-        f"--confidence=0.3",  # 신뢰도 임계값을 0.3으로 설정
+        f"--confidence=0.5",  # 신뢰도 임계값을 0.5 설정
         f"--cuda={'True' if ex_dict['Device'] != 'cpu' else 'False'}"
     ]
     
@@ -786,8 +786,8 @@ def main():
         '--model_path', args.model_path,
         '--data_yaml', args.data_yaml,
         '--map_out_path', args.map_out_path,
-        '--confidence', str(config.get('confidence', 0.5)),
-        '--nms_iou', str(config.get('nms_iou', 0.3)),
+        '--confidence', str(config.get('confidence', 0.001)),
+        '--nms_iou', str(config.get('nms_iou', 0.65)),
         '--input_shape', str(config.get('input_shape', [640, 640])),
         '--phi', config.get('phi', 'l'),
         '--cuda', str(config.get('cuda', True))

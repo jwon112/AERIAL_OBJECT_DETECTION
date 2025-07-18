@@ -608,7 +608,7 @@ if __name__ == "__main__":
             # 임시 eval 디렉토리 생성 (체크포인트 파일 보호)
             temp_map_out_path = os.path.join(save_dir, "temp_map_out")
             eval_callback   = EvalCallback(model, input_shape, class_names, num_classes, val_lines, log_dir, Cuda, \
-                                            map_out_path=temp_map_out_path, eval_flag=eval_flag, period=eval_period, confidence=0.00001, nms_iou=0.9, max_boxes=1000, MINOVERLAP=0.1)
+                                            map_out_path=temp_map_out_path, eval_flag=eval_flag, period=eval_period)
         else:
             eval_callback   = None
         

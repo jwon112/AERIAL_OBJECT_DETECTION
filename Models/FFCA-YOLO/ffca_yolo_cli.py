@@ -102,6 +102,49 @@ def create_ffca_data_config(ex_dict):
     
     return temp_data_file.name
 
+def create_dynamic_hyp_file(ex_dict):
+    """ex_dict 설정을 반영한 동적 하이퍼파라미터 파일 생성"""
+    #원본 코드는 hyp.scratch-low.yaml 를 그대로 사용하는 방식임
+    # 하지만 optimizer 에 따라 동적으로 학습률을 조절하기 위해 아래와 같이 수정함
+    # 기본 하이퍼파라미터 설정
+    base_hyp = {
+        'lr0': ex_dict.get('LR', 0.001),  # main.ipynb에서 설정한 학습률 사용
+        'lrf': 0.2,
+        'momentum': ex_dict.get('Momentum', 0.937),
+        'weight_decay': ex_dict.get('Weight Decay', 0.0005),
+        'warmup_epochs': 3.0,
+        'warmup_momentum': 0.8,
+        'warmup_bias_lr': 0.1,
+        'box': 0.05,
+        'cls': 0.5,
+        'cls_pw': 1.0,
+        'obj': 1.0,
+        'obj_pw': 1.0,
+        'iou_t': 0.2,
+        'anchor_t': 4.0,
+        'fl_gamma': 0.0,
+        'hsv_h': 0.015,
+        'hsv_s': 0.7,
+        'hsv_v': 0.4,
+        'degrees': 0.0,
+        'translate': 0.1,
+        'scale': 0.5,
+        'shear': 0.0,
+        'perspective': 0.0,
+        'flipud': 0.0,
+        'fliplr': 0.5,
+        'mosaic': 1.0,
+        'mixup': 0.0,
+        'copy_paste': 0.0
+    }
+    
+    # 임시 파일 생성
+    temp_hyp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+    yaml.dump(base_hyp, temp_hyp_file, default_flow_style=False)
+    temp_hyp_file.close()
+    
+    return temp_hyp_file.name
+
 def train_ffca_yolo_model_cli(ex_dict):
     """
     FFCA-YOLO 모델을 CLI로 학습
@@ -121,11 +164,9 @@ def train_ffca_yolo_model_cli(ex_dict):
     
     # Config 파일 경로
     cfg_path = os.path.join(FFCA_YOLO_DIR, 'models', cfg)
-    hyp_path = os.path.join(FFCA_YOLO_DIR, 'data', 'hyps', 'hyp.scratch-low.yaml')
     
-    if not os.path.exists(hyp_path):
-        # 기본 hyp 파일 사용
-        hyp_path = os.path.join(FFCA_YOLO_DIR, 'data', 'hyp.scratch.yaml')
+    # 동적 하이퍼파라미터 파일 생성 (ex_dict의 LR 설정 반영)
+    hyp_path = create_dynamic_hyp_file(ex_dict)
     
     # 데이터 설정 파일 생성
     temp_data_path = create_ffca_data_config(ex_dict)
@@ -135,6 +176,9 @@ def train_ffca_yolo_model_cli(ex_dict):
     
     # ex_dict에서 seed 값 읽기
     seed = ex_dict.get('Seed', 42)  # FFCA-YOLO 기본값: 0
+    
+    # ex_dict에서 optimizer 값 읽기 (설정 필수)
+    optimizer = ex_dict['Optimizer']  # 설정이 없으면 KeyError 발생
     
     cmd = [
         sys.executable,
@@ -151,6 +195,7 @@ def train_ffca_yolo_model_cli(ex_dict):
         f"--workers={ex_dict.get('Num Workers', 0)}",
         f"--device={ex_dict['Device'] if isinstance(ex_dict['Device'], int) else 0}",
         f"--seed={seed}",  # 🎯 seed 파라미터 추가
+        f"--optimizer={optimizer}",  # 🎯 ex_dict에서 optimizer 설정 가져오기
         "--cache",  # 이미지 캐싱으로 속도 향상
         "--save-period=1",  # 매 epoch마다 저장
         "--exist-ok"  # 기존 디렉토리 덮어쓰기 허용
@@ -218,9 +263,13 @@ def train_ffca_yolo_model_cli(ex_dict):
     param_keys = [k for k in ex_dict.keys() if 'Parameter' in k or 'Model' in k]
     print(f"[DEBUG] 추가된 파라미터 키들: {param_keys}")
     
-    # 임시 데이터 파일 삭제
+    # 임시 파일들 삭제
     if os.path.exists(temp_data_path):
         os.unlink(temp_data_path)
+    
+    # 동적 하이퍼파라미터 파일 삭제
+    if os.path.exists(hyp_path):
+        os.unlink(hyp_path)
     
     return ex_dict
 

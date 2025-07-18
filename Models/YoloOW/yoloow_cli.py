@@ -93,6 +93,28 @@ def train_yoloow_model_cli(ex_dict):
     cfg_path = os.path.join(YOLOOW_DIR, 'cfg', 'training', cfg)
     hyp_path = os.path.join(YOLOOW_DIR, 'data', 'hyp.scratch.p5.yaml')
     
+    # 📌 hyp 파일을 로드하고 main.ipynb의 설정으로 업데이트
+    print(f"[YoloOW] 기본 hyp 파일 로드: {hyp_path}")
+    with open(hyp_path, 'r') as f:
+        hyp_config = yaml.load(f, Loader=yaml.FullLoader)
+    
+    # main.ipynb의 학습률 설정 반영
+    hyp_config['lr0'] = ex_dict['LR']  # 🎯 가장 중요한 부분!
+    hyp_config['momentum'] = ex_dict['Momentum']
+    hyp_config['weight_decay'] = ex_dict['Weight Decay']
+    
+    print(f"[YoloOW] 하이퍼파라미터 업데이트:")
+    print(f"  lr0: {hyp_config['lr0']} (main.ipynb에서 설정)")
+    print(f"  momentum: {hyp_config['momentum']}")
+    print(f"  weight_decay: {hyp_config['weight_decay']}")
+    
+    # 임시 hyp 파일 생성
+    temp_hyp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+    yaml.dump(hyp_config, temp_hyp_file, default_flow_style=False)
+    temp_hyp_file.close()
+    temp_hyp_path = temp_hyp_file.name
+    print(f"[YoloOW] 임시 hyp 파일 생성: {temp_hyp_path}")
+    
     # Data Config 경로를 절대 경로로 변환
     data_config_path = os.path.abspath(ex_dict['Data Config'])
     print(f"Data Config 절대 경로: {data_config_path}")
@@ -144,13 +166,21 @@ def train_yoloow_model_cli(ex_dict):
         f"--name={name}",
         f"--epochs={ex_dict['Epochs']}",
         f"--project={ex_dict['Output Dir']}",
-        f"--hyp={hyp_path}",
+        f"--hyp={temp_hyp_path}",  # 📌 수정된 hyp 파일 사용
         f"--seed={seed}",  # 🎯 seed 파라미터 추가
     ]
     
     # Adam optimizer 설정 (boolean flag로 처리)
     if ex_dict['Optimizer'] == 'AdamW':
+        print("⚠️  [YoloOW] AdamW는 지원하지 않습니다. Adam으로 변경합니다.")
         cmd.append("--adam")
+    elif ex_dict['Optimizer'] == 'Adam':
+        cmd.append("--adam")
+    elif ex_dict['Optimizer'] == 'SGD':
+        pass  # SGD는 기본값이므로 플래그 불필요
+    else:
+        print(f"⚠️  [YoloOW] 지원하지 않는 optimizer: {ex_dict['Optimizer']}. SGD로 변경합니다.")
+        # SGD는 기본값이므로 플래그 불필요
     
     # 디렉토리 이름 중복 방지를 위해 exist-ok 플래그 추가
     cmd.append("--exist-ok")

@@ -280,7 +280,6 @@ def get_coco_map(class_names, path, data_yaml):
             except Exception as e:
                 print(f"Warning: Could not process image {image_path}: {e}")
 
-    MINOVERLAP = 0.5
     #-------------------------------------------------------#
     #   ground-truth와 detection-results의 경로
     #-------------------------------------------------------#
@@ -505,8 +504,8 @@ def main():
     parser.add_argument('--model_path', type=str, required=True, help='path to model weights')
     parser.add_argument('--data_yaml', type=str, required=True, help='path to data.yaml file')
     parser.add_argument('--map_out_path', type=str, default='map_out', help='path to save evaluation results')
-    parser.add_argument('--confidence', type=float, default=0.3, help='confidence threshold')
-    parser.add_argument('--nms_iou', type=float, default=0.3, help='nms iou threshold')
+    parser.add_argument('--confidence', type=float, default=0.001, help='confidence threshold')
+    parser.add_argument('--nms_iou', type=float, default=0.65, help='nms iou threshold')
     parser.add_argument('--input_shape', type=int, nargs='+', default=[640, 640], help='input shape')
     parser.add_argument('--phi', type=str, default='l', help='model size')
     parser.add_argument('--cuda', type=bool, default=True, help='use cuda')
